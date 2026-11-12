@@ -32,7 +32,9 @@ export async function buildApp(options: AppOptions = {}): Promise<BuiltApp> {
     bodyLimit: DEFAULTS.bodyLimit,
     // D4：默认请求日志只含 method/url/hostname，不含 header 与 body，不要再加自定义 serializer
   });
-  const repo = await openRepo(options.dbPath ?? ':memory:', options.pgUrl);
+  // 空串/纯空白等同未设置：回滚时用 `kubectl set env deploy/llmbm LLMBM_PG_URL=` 置空，不能拿 '' 去连 PG
+  const pgUrl = options.pgUrl?.trim() || undefined;
+  const repo = await openRepo(options.dbPath ?? ':memory:', pgUrl);
   const gate = new ConcurrencyGate(DEFAULTS.maxConcurrency);
 
   await app.register(cors, { origin: true });

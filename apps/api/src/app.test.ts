@@ -52,6 +52,19 @@ test('api: health 正常', async () => {
   }
 });
 
+test('api: pgUrl 空串/纯空白按未设置处理（回滚置空不改后端）', async () => {
+  for (const pgUrl of ['', '   ']) {
+    const { app, close } = await buildApp({ pgUrl });
+    try {
+      const res = await app.inject({ method: 'GET', url: '/api/health' });
+      assert.equal(res.statusCode, 200);
+      assert.equal(res.json().backend, 'sqlite');
+    } finally {
+      await close();
+    }
+  }
+});
+
 test('api: 社区提交后可按域名列出，且不回传 payload', async () => {
   const { app, close } = await buildApp();
   try {

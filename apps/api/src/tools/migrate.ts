@@ -50,7 +50,7 @@ export function parseArgs(argv: string[], env: NodeJS.ProcessEnv = process.env):
   };
   const sqlite = get('--sqlite');
   if (!sqlite) throw new Error('缺少 --sqlite <path>');
-  const pgUrl = get('--pg') ?? env['LLMBM_PG_URL'];
+  const pgUrl = (get('--pg') ?? env['LLMBM_PG_URL'])?.trim();
   if (!pgUrl) throw new Error('缺少 --pg <dsn>（或设置 LLMBM_PG_URL）');
   const apply = argv.includes('--apply');
   if (apply && argv.includes('--dry-run')) throw new Error('--dry-run 与 --apply 不能同时给');
