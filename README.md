@@ -25,8 +25,12 @@ npm run dev -w @llmbm/web     # http://127.0.0.1:5173（已代理 /api）
 
 ```bash
 npm run build
-docker compose up --build     # web → http://127.0.0.1:8080，api 只在内网
+docker compose up -d --build   # web → http://127.0.0.1:8080，api 只在内网
 ```
+
+> v0.1 阶段只在本机做功能验收（spec §7）：deploy/ 就是本机 compose，够用即停。
+> 不搭 CDN / 多环境 / 域名证书，也不随 main 推送自动构建镜像（`.github/workflows/build.yml` 仅手动触发，默认只验证构建、不推 GHCR）。
+> 云环境部署等 v0.1 验收通过后由 mike 协调运维执行。
 
 ## 目录
 
