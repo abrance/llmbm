@@ -6,11 +6,11 @@ import {
   aggregate,
   detectWrapped,
   judge,
+  questionStatus,
   sampleStat,
   scoreQuestion,
   type EndpointConfig,
   type QuestionScore,
-  type QuestionStatus,
 } from '@llmbm/core';
 import type { BankQuestion } from '../data/bank.js';
 import { chatOnce } from './transport.js';
@@ -28,12 +28,6 @@ let cancelled = false;
 
 function post(msg: WorkerEvent): void {
   scope.postMessage(msg);
-}
-
-function worstStatus(samples: readonly SampleResult[]): QuestionStatus {
-  if (samples.some((s) => s.score.status === 'fail')) return 'fail';
-  if (samples.some((s) => s.score.status === 'pending_review')) return 'pending_review';
-  return 'pass';
 }
 
 function endpointOf(start: WorkerStart): EndpointConfig {
@@ -92,7 +86,8 @@ async function runQuestion(start: WorkerStart, question: BankQuestion): Promise<
   }
 
   if (cancelled || samples.length < start.samples) return undefined;
-  const stat = sampleStat(scores.map((s) => s.score));
+  // 题均值与状态都只看有效采样：传输失败不是能力结论（D5，实现与聚合共用 core 一份）。
+  const stat = sampleStat(scores.filter((s) => s.transportError !== true).map((s) => s.score));
   return {
     questionId: question.id,
     group: question.group,
@@ -103,7 +98,7 @@ async function runQuestion(start: WorkerStart, question: BankQuestion): Promise<
     samples,
     mean: stat.mean,
     halfWidth: stat.halfWidth,
-    status: worstStatus(samples),
+    status: questionStatus(scores),
   };
 }
 

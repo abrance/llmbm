@@ -1,7 +1,6 @@
 /**
  * 单题打分（spec §2.3），纯函数、无 IO。
- * 规则顺序即优先级：传输失败 → 硬检查/core → 参数封顶 → 包装保底 → 阈值分级。
- * 包装保底的前提是「内容交付了但有瑕」，至少要有一项检查通过；0 项通过是没交付，不保底。
+ * 规则顺序即优先级：传输失败 → 硬检查/core → 参数封顶 → 包装保底 → 阈值分级。 * 包装保底的前提是「内容交付了但有瑕」，至少要有一项检查通过；0 项通过是没交付，不保底。
  */
 import type { JudgeCheck, Question, QuestionScore, QuestionStatus, ScoreFlag } from '../types.js';
 
@@ -10,7 +9,7 @@ export interface ScoreOptions {
   flags?: ScoreFlag[];
   /** 覆盖率低但答案包装规整时给保底分，默认由 detectWrapped 推断。 */
   wrapped?: boolean;
-  /** 传输层错误（超时/429 重试耗尽/断流），有值直接 0。 */
+  /** 传输层错误（超时/429 重试耗尽/断流）：没收到答案 ≠ 答得不对，该采样不进入能力分聚合（D5）。 */
   transportError?: string;
 }
 
@@ -41,6 +40,18 @@ export function statusOf(score: number): QuestionStatus {
   return 'fail';
 }
 
+/**
+ * 题级状态（D5）：只看有效采样 —— 传输失败的采样是「没收到答案」，不参与能力结论。
+ * 有效采样不足（一次都没有，或不足总采样数的一半）时是 `pending_review`，不用 `fail` 顶。
+ */
+export function questionStatus(scores: readonly QuestionScore[]): QuestionStatus {
+  const valid = scores.filter((s) => s.transportError !== true);
+  if (valid.length === 0 || valid.length * 2 < scores.length) return 'pending_review';
+  if (valid.some((s) => s.status === 'fail')) return 'fail';
+  if (valid.some((s) => s.status === 'pending_review')) return 'pending_review';
+  return 'pass';
+}
+
 function weightedTally(checks: readonly JudgeCheck[]): { passed: number; total: number } {
   let passed = 0;
   let total = 0;
@@ -61,9 +72,11 @@ export function scoreQuestion(question: Question, checks: readonly JudgeCheck[],
   // 归零后不许再被保底抬回：硬失败 / core 未全对是负结论，不是「有瑕」。
   const zeroed = hardFailed || (question.core === true && !allPass);
   const notes: string[] = [];
+  const transport = opts.transportError !== undefined && opts.transportError !== '';
 
   let score: number;
-  if (opts.transportError) {
+  if (transport) {
+    // 没收到答案不是能力结论：留 0 分给证据链看，但状态挂 pending_review，聚合侧会剔除这次采样。
     score = 0;
     flags.add('timeout');
     notes.push(`采样失败: ${opts.transportError}`);
@@ -102,12 +115,13 @@ export function scoreQuestion(question: Question, checks: readonly JudgeCheck[],
     group: question.group,
     judge: question.judge,
     score,
-    status: statusOf(score),
+    status: transport ? 'pending_review' : statusOf(score),
     checksPassed: passed,
     checksTotal: total,
     checks: [...checks],
     flags: [...flags].sort(),
     core: question.core === true,
+    ...(transport ? { transportError: true } : {}),
     ...(notes.length > 0 ? { note: notes.join('; ') } : {}),
   };
 }

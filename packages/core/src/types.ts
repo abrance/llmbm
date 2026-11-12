@@ -221,4 +221,9 @@ export interface QuestionScore {
   flags: ScoreFlag[];
   core: boolean;
   note?: string;
+  /**
+   * 该次采样是传输失败（超时/断流/重试耗尽）：没收到答案，不是答得不对（D5）。
+   * 这类采样 status 恒为 `pending_review`，且不进入能力分聚合 —— 只计入传输错误率。
+   */
+  transportError?: boolean;
 }

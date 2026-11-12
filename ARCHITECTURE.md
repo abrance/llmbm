@@ -68,6 +68,16 @@
 
 反例单测必须至少覆盖：**格式对内容错**、**内容缺项**、**空响应**。正例至少一条正常命中。
 
+### 打分与聚合（D5）
+
+- **没收到答案 ≠ 答得不对**：`ModelResponse.error` 有值的采样是传输失败，`scoreQuestion` 给 `transportError: true`、
+  status 恒为 `pending_review`（不用 `fail` 顶）。
+- `aggregate` 只把非传输失败采样算进题均值、维度分、能力分；传输失败单独记 `report.transport`
+  （`errors` / `samples` / `rate`），同时给出 `report.samples`（`valid` / `total`），让半宽大的读数能看出是不是被传输失败稀释。
+- 有效采样不足（一次都没有，或不足总采样数的一半）时整题不进能力分，状态 `pending_review`。
+  题级状态判定只有 `scoring.questionStatus` 一份实现，web worker 也用它。
+- 传输失败的采样数**不是**抬高 timeout 的理由：网关卡挂时中位数 0.6s、卡住的 60s，抬 timeout 只会多等。
+
 ## 4. adapter 契约
 
 `adapters/<protocol>.ts` 各导出一个 `Adapter`（见 `types.ts`），`adapters/index.ts` 导出

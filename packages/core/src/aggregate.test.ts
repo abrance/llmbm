@@ -69,3 +69,39 @@ test('空输入不崩', () => {
   assert.deepEqual(r.counts, { pass: 0, pending: 0, fail: 0, questions: 0 });
   assert.equal(r.stability.rate, 0);
 });
+
+const t = (questionId: string, group: string, score: number): QuestionScore => ({
+  ...s(questionId, group, score),
+  score: 0,
+  status: 'pending_review',
+  transportError: true,
+});
+
+test('D5：传输失败的采样不进能力分，只计入传输错误率', () => {
+  // 两条 pelican 题各一次 60s 超时：旧口径把能力分从 100 稀释到 97.10。
+  const r = aggregate({
+    scores: [s('a', 'basic', 100), s('a', 'basic', 100), t('a', 'basic', 0), s('b', 'ability', 100)],
+  });
+  assert.equal(r.total.mean, 100);
+  assert.equal(r.total.n, 2);
+  assert.deepEqual(r.samples, { valid: 3, total: 4 });
+  assert.deepEqual(r.transport, { errors: 1, samples: 4, rate: 0.25 });
+  assert.deepEqual(r.counts, { pass: 2, pending: 0, fail: 0, questions: 2 });
+});
+
+test('D5：有效采样不足是 pending_review，不是 fail，且整题不进能力分', () => {
+  const r = aggregate({ scores: [t('x', 'ability', 0), s('y', 'ability', 100)] });
+  assert.equal(r.total.mean, 100);
+  assert.equal(r.total.n, 1);
+  assert.deepEqual(r.counts, { pass: 1, pending: 1, fail: 0, questions: 2 });
+  assert.deepEqual(r.transport, { errors: 1, samples: 2, rate: 0.5 });
+});
+
+test('D5：整场都是传输失败时不崩，能力分 0、错误率 1', () => {
+  const r = aggregate({ scores: [t('a', 'basic', 0), t('b', 'basic', 0)] });
+  assert.equal(r.total.mean, 0);
+  assert.equal(r.total.n, 0);
+  assert.deepEqual(r.counts, { pass: 0, pending: 2, fail: 0, questions: 2 });
+  assert.equal(r.transport.rate, 1);
+  assert.equal(r.dimensions.length, 0);
+});

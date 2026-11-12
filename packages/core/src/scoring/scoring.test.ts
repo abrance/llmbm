@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { scoreQuestion, detectWrapped, statusOf, PARAM_CAP, WRAPPED_FLOOR } from './index.js';
+import { scoreQuestion, detectWrapped, statusOf, questionStatus, PARAM_CAP, WRAPPED_FLOOR } from './index.js';
 import type { Question } from '../types.js';
 
 const ok = (name: string) => ({ name, pass: true });
@@ -52,10 +52,22 @@ test('参数封顶优先于包装保底', () => {
   assert.equal(s.score, PARAM_CAP);
 });
 
-test('传输失败 → 0 + timeout', () => {
+test('传输失败 → 0 分但状态是 pending_review（没收到答案 ≠ 答得不对）', () => {
   const s = scoreQuestion(q(), [ok('a')], { transportError: 'ETIMEDOUT' });
   assert.equal(s.score, 0);
   assert.ok(s.flags.includes('timeout'));
+  assert.equal(s.status, 'pending_review');
+  assert.equal(s.transportError, true);
+});
+
+test('题级状态：忽略传输失败采样；不够半数有效采样 → pending_review', () => {
+  const pass = scoreQuestion(q(), [ok('a')]);
+  const timeout = scoreQuestion(q(), [ok('a')], { transportError: 'ETIMEDOUT' });
+  const wrong = scoreQuestion(q(), [bad('a', true)]);
+  assert.equal(questionStatus([pass, pass, timeout]), 'pass');
+  assert.equal(questionStatus([pass, timeout, timeout]), 'pending_review');
+  assert.equal(questionStatus([timeout, timeout, timeout]), 'pending_review');
+  assert.equal(questionStatus([pass, wrong, timeout]), 'fail');
 });
 
 test('满分 100 且 pass；阈值边界 90 / 55', () => {

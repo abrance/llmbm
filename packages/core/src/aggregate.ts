@@ -4,6 +4,7 @@
  * 避免某题采样数多就自动占更多权重。
  */
 import type { QuestionScore } from './types.js';
+import { questionStatus } from './scoring/index.js';
 import { sampleStat, type SampleStat } from './scoring/interval.js';
 
 export const MAX_SCORE = 100;
@@ -26,6 +27,13 @@ export interface OutcomeReport {
   /** 完成率 = 有采样的题 / 应跑题数。 */
   stability: { completed: number; expected: number; rate: number };
   counts: { pass: number; pending: number; fail: number; questions: number };
+  /**
+   * D5：传输错误单独统计 —— 没收到答案 ≠ 答得不对，不进能力分。
+   * `samples` 是实际请求次数，`errors` 是其中传输失败的次数。
+   */
+  transport: { errors: number; samples: number; rate: number };
+  /** D5：进入能力分聚合的有效采样数（= samples - transport.errors）。 */
+  samples: { valid: number; total: number };
 }
 
 export interface AggregateInput {
@@ -56,11 +64,23 @@ export function aggregate({ scores, expectedQuestions, weights }: AggregateInput
   let fail = 0;
   let formatHit = 0;
   let formatTotal = 0;
+  let transportErrors = 0;
+  let totalSamples = 0;
+  let validSamples = 0;
 
   for (const [questionId, list] of perQuestion) {
-    const stat = sampleStat(list.map((s) => s.score));
+    // 传输失败的采样不进入均值，并单独立账；没有有效采样时整题不进能力分。
+    const valid = list.filter((s) => s.transportError !== true);
+    transportErrors += list.length - valid.length;
+    totalSamples += list.length;
+    validSamples += valid.length;
+    if (valid.length === 0) {
+      pending += 1;
+      continue;
+    }
+    const stat = sampleStat(valid.map((s) => s.score));
     const weight = weights?.[questionId] ?? 1;
-    const first = list[0] as QuestionScore;
+    const first = valid[0] as QuestionScore;
     const dim = dimMap.get(first.group) ?? { weighted: 0, weight: 0, halfWidths: [] };
     dim.weighted += stat.mean * weight;
     dim.weight += weight;
@@ -68,9 +88,10 @@ export function aggregate({ scores, expectedQuestions, weights }: AggregateInput
     dimMap.set(first.group, dim);
     questionMeans.push({ mean: stat.mean, weight });
 
-    // 题级状态取最差一次采样，宁可保守。
-    if (list.some((s) => s.status === 'fail')) fail += 1;
-    else if (list.some((s) => s.status === 'pending_review')) pending += 1;
+    // 题级状态只看有效采样；有效采样不足时是待复核而不是失败（D5）。
+    const status = questionStatus(list);
+    if (status === 'fail') fail += 1;
+    else if (status === 'pending_review') pending += 1;
     else pass += 1;
 
     if (first.judge === 'format-json') {
@@ -96,12 +117,13 @@ export function aggregate({ scores, expectedQuestions, weights }: AggregateInput
 
   const completed = perQuestion.size;
   const expected = expectedQuestions ?? completed;
+  const scored = questionMeans.length;
 
   return {
     total: {
       mean: capped ? Math.min(SCORE_CAP, totalMean) : totalMean,
       halfWidth: totalHalfWidth,
-      n: completed,
+      n: scored,
       values: [],
     },
     capped,
@@ -109,5 +131,7 @@ export function aggregate({ scores, expectedQuestions, weights }: AggregateInput
     format: { rate: formatTotal === 0 ? 0 : formatHit / formatTotal, hit: formatHit, total: formatTotal },
     stability: { completed, expected, rate: expected === 0 ? 0 : completed / expected },
     counts: { pass, pending, fail, questions: completed },
+    transport: { errors: transportErrors, samples: totalSamples, rate: totalSamples === 0 ? 0 : transportErrors / totalSamples },
+    samples: { valid: validSamples, total: totalSamples },
   };
 }
