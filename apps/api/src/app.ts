@@ -8,11 +8,14 @@ import { openRepo, type Repo } from './repo/results.js';
 import { registerModelsRoutes } from './routes/models.js';
 import { registerProxyRoutes } from './routes/passthrough.js';
 import { registerCommunityRoutes } from './routes/community.js';
+import { registerStatic, resolveWebRoot } from './plugins/static.js';
 
 export interface AppOptions {
   /** ':memory:' 为内存库（测试用）。 */
   dbPath?: string;
   logger?: boolean;
+  /** 前端构建产物目录（单镜像形态由 api 托管）。不存在则跳过。 */
+  webRoot?: string;
 }
 
 export interface BuiltApp {
@@ -52,6 +55,9 @@ export async function buildApp(options: AppOptions = {}): Promise<BuiltApp> {
   registerModelsRoutes(app);
   registerProxyRoutes(app);
   registerCommunityRoutes(app, repo);
+
+  const webRoot = resolveWebRoot(options.webRoot);
+  if (webRoot) await registerStatic(app, webRoot);
 
   return {
     app,

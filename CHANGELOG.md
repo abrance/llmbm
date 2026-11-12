@@ -11,7 +11,7 @@
 - `apps/api`：Fastify 空壳 + `/api/models`、`/api/proxy`（SSE 透传）、`/api/community/*`，
   SQLite 单文件 repo 层，D5 代理护栏（目标校验 / 并发上限 / 超时 / body 上限）
 - CI：install → typecheck → lint → test；镜像构建推送 GHCR
-- `deploy/`：api / web 多阶段 Dockerfile、nginx（SSE 关缓冲）、docker-compose
+- `deploy/`：单镜像 Dockerfile（api 进程内托管前端产物，同源免 CORS）、docker-compose
 
 ### 已知限制
 - 跑测引擎与题库尚未接入：`/run`、`/result` 目前是流程骨架，不产出真实分数

@@ -1,10 +1,15 @@
+import { dirname, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { buildApp } from './app.js';
 
 const port = Number(process.env['PORT'] ?? 8787);
 const host = process.env['HOST'] ?? '0.0.0.0';
 const dbPath = process.env['LLMBM_DB'] ?? './data/llmbm.db';
+// 单镜像：前端产物与 api 同包（apps/web/dist）；WEB_ROOT 可覆盖
+const webRoot =
+  process.env['WEB_ROOT'] ?? resolve(dirname(fileURLToPath(import.meta.url)), '../../web/dist');
 
-const { app, close } = await buildApp({ dbPath, logger: true });
+const { app, close } = await buildApp({ dbPath, webRoot, logger: true });
 
 for (const signal of ['SIGINT', 'SIGTERM'] as const) {
   process.on(signal, () => {

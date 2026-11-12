@@ -1,9 +1,9 @@
 services:
-  api:
+  llmbm:
     build:
       context: .
-      dockerfile: deploy/Dockerfile.api
-    image: ghcr.io/abrance/llmbm/api:latest
+      dockerfile: deploy/Dockerfile
+    image: ghcr.io/abrance/llmbm:local
     restart: unless-stopped
     environment:
       PORT: 8787
@@ -11,27 +11,14 @@ services:
       LLMBM_DB: /data/llmbm.db
     volumes:
       - llmbm-data:/data
-    # 只在内网暴露，公网入口走 web 的 nginx
-    expose:
-      - 8787
+    ports:
+      - '8080:8787'
     healthcheck:
       test: ['CMD', 'node', '-e', "fetch('http://127.0.0.1:8787/api/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
       interval: 30s
       timeout: 3s
       retries: 3
       start_period: 5s
-
-  web:
-    build:
-      context: .
-      dockerfile: deploy/Dockerfile.web
-    image: ghcr.io/abrance/llmbm/web:latest
-    restart: unless-stopped
-    depends_on:
-      api:
-        condition: service_healthy
-    ports:
-      - '8080:80'
 
 volumes:
   llmbm-data:
