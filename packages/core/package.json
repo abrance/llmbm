@@ -1,0 +1,31 @@
+{
+  "name": "@llmbm/core",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "LLM 中转站可信度检测核心：judge registry / 抽样 / 打分聚合 / 协议适配。零运行时依赖，前后端共用。",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./judge": {
+      "types": "./dist/judge/index.d.ts",
+      "default": "./dist/judge/index.js"
+    },
+    "./adapters": {
+      "types": "./dist/adapters/index.d.ts",
+      "default": "./dist/adapters/index.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "tsc -p tsconfig.json && node --test \"dist/**/*.test.js\""
+  }
+}

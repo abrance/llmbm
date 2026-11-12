@@ -1,0 +1,23 @@
+{
+  "name": "llmbm",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=24"
+  },
+  "workspaces": [
+    "packages/*",
+    "apps/*"
+  ],
+  "scripts": {
+    "build": "npm run build -w @llmbm/core",
+    "test": "npm run test -w @llmbm/core",
+    "typecheck": "npm run typecheck -w @llmbm/core",
+    "verify": "npm run typecheck && npm test"
+  },
+  "devDependencies": {
+    "typescript": "5.9.3",
+    "@types/node": "^24.10.1"
+  }
+}
