@@ -24,6 +24,18 @@ test('static: webRoot 不存在时跳过托管', () => {
   assert.equal(resolveWebRoot(import.meta.filename), undefined); // 是文件不是目录
 });
 
+test('static: 相对路径转绝对，@fastify/static 只收绝对 root', () => {
+  const root = makeDist();
+  const prev = process.cwd();
+  try {
+    process.chdir(root);
+    assert.equal(resolveWebRoot('.'), root);
+  } finally {
+    process.chdir(prev);
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test('static: 根路径与静态资源可直接访问', async () => {
   const root = makeDist();
   const { app, close } = await buildApp({ webRoot: root });
