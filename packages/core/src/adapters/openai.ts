@@ -52,9 +52,7 @@ export const openaiAdapter: Adapter = {
   buildModelsRequest(cfg: EndpointConfig): PreparedRequest {
     return {
       url: joinUrl(cfg.baseUrl, '/v1', '/models'),
-      // shortcut: PreparedRequest.method 契约里只允许 'POST'，模型列表实际是 GET；
-      // 等 mike 放开类型后删掉这行 cast（已在群里报）。
-      method: 'GET' as PreparedRequest['method'],
+      method: 'GET',
       headers: {
         authorization: `Bearer ${cfg.apiKey}`,
         accept: 'application/json',
