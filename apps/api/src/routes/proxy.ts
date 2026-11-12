@@ -3,6 +3,7 @@
  * D4：不落盘 Key 与请求体，不打日志；响应原样透传（含 SSE）。
  * D5：目标校验、并发上限、单请求超时、body 上限在 server.ts 统一挂。
  */
+import { Readable } from 'node:stream';
 import type { FastifyReply } from 'fastify';
 import { checkTarget, DEFAULTS, isRetryableStatus } from '../plugins/guard.js';
 
@@ -60,15 +61,32 @@ export async function pipeForward(reply: FastifyReply, result: ForwardResult): P
     reply.code(result.status).send({ error: result.error });
     return;
   }
-  reply.code(result.status);
-  for (const [k, v] of Object.entries(result.headers)) reply.header(k, v);
   if (!result.body) {
+    reply.code(result.status);
+    for (const [k, v] of Object.entries(result.headers)) reply.header(k, v);
     reply.send();
     return;
   }
-  // 用 Web Stream → Node 流，避免整包读进内存
-  const { Readable } = await import('node:stream');
-  reply.send(Readable.fromWeb(result.body as Parameters<typeof Readable.fromWeb>[0]));
+  // 流式分支必须 hijack 后直接 pipe 底层响应：本 handler 是 async，其 promise 在
+  // 拿到响应头时就已结算，而流还没吐完；Fastify 的 wrapThenable 会因此补发一次
+  // send(undefined)，把已 pipe 的响应覆盖成 content-length: 0 的空 body。
+  reply.hijack();
+  const raw = reply.raw;
+  // writeHead 绕过 reply.send，插件挂在 reply 上的头（如 @fastify/cors 的
+  // access-control-allow-origin）必须显式并进来，否则跨源调用方会被浏览器拦掉。
+  // 上游透传头放后面，保证 PASS_THROUGH 白名单内的值以白名单为准。
+  const replyHeaders: Record<string, string | number | string[]> = {};
+  for (const [k, v] of Object.entries(reply.getHeaders())) if (v !== undefined) replyHeaders[k] = v;
+  raw.writeHead(result.status, { ...replyHeaders, ...result.headers });
+  // Web Stream → Node 流，避免整包读进内存
+  const source = Readable.fromWeb(result.body as Parameters<typeof Readable.fromWeb>[0]);
+  source.on('error', (err: Error) => {
+    // 头已发出，无法再回 JSON 错误：断开连接让客户端看到截断，而不是假成功
+    reply.log.warn({ err }, '上游响应流中断');
+    raw.destroy();
+  });
+  raw.on('close', () => source.destroy());
+  source.pipe(raw);
 }
 
 export { isRetryableStatus };
