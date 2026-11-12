@@ -70,6 +70,8 @@ export function exportMarkdown(run: RunRecord): string {
   lines.push(`- 随机种子：${run.seed}；每题采样：${run.samples} 次`);
   lines.push(`- 开始 / 结束：${run.startedAt} / ${run.finishedAt ?? '—'}`);
   lines.push('');
+  lines.push('> 区间（± 半宽）只反映同一模型多次采样的离散度，不覆盖题库覆盖度与判定口径差异；temperature=0 下采样可能完全一致，± 0.00 不等于高置信。');
+  lines.push('');
 
   lines.push('## 维度得分');
   lines.push('');
