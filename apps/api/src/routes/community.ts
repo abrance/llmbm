@@ -42,7 +42,7 @@ export function registerCommunityRoutes(app: FastifyInstance, repo: Repo): void 
       return reply.code(400).send({ error: 'capabilityScore 必须在 0~100' });
     }
 
-    const row = repo.insert({
+    const row = await repo.insert({
       domain: b.domain as string,
       model: b.model as string,
       protocol: b.protocol as string,
@@ -60,7 +60,7 @@ export function registerCommunityRoutes(app: FastifyInstance, repo: Repo): void 
   app.get<{ Querystring: ListQuery }>('/api/community/results', async (request, reply) => {
     const { domain, model, limit } = request.query;
     const parsedLimit = limit ? Number(limit) : undefined;
-    const rows = repo.list({
+    const rows = await repo.list({
       ...(domain ? { domain } : {}),
       ...(model ? { model } : {}),
       ...(parsedLimit !== undefined && Number.isFinite(parsedLimit) ? { limit: parsedLimit } : {}),
@@ -72,7 +72,7 @@ export function registerCommunityRoutes(app: FastifyInstance, repo: Repo): void 
   });
 
   app.get<{ Params: { id: string } }>('/api/community/results/:id', async (request, reply) => {
-    const row = repo.get(request.params.id);
+    const row = await repo.get(request.params.id);
     if (!row) return reply.code(404).send({ error: '结果不存在' });
     return reply.send(row);
   });

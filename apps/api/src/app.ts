@@ -13,6 +13,8 @@ import { registerStatic, resolveWebRoot } from './plugins/static.js';
 export interface AppOptions {
   /** ':memory:' 为内存库（测试用）。 */
   dbPath?: string;
+  /** 有值走 PG，否则用 dbPath 的 SQLite 文件（回滚开关：清空即回 SQLite）。 */
+  pgUrl?: string;
   logger?: boolean;
   /** 前端构建产物目录（单镜像形态由 api 托管）。不存在则跳过。 */
   webRoot?: string;
@@ -30,7 +32,9 @@ export async function buildApp(options: AppOptions = {}): Promise<BuiltApp> {
     bodyLimit: DEFAULTS.bodyLimit,
     // D4：默认请求日志只含 method/url/hostname，不含 header 与 body，不要再加自定义 serializer
   });
-  const repo = openRepo(options.dbPath ?? ':memory:');
+  // 空串/纯空白等同未设置：回滚时用 `kubectl set env deploy/llmbm LLMBM_PG_URL=` 置空，不能拿 '' 去连 PG
+  const pgUrl = options.pgUrl?.trim() || undefined;
+  const repo = await openRepo(options.dbPath ?? ':memory:', pgUrl);
   const gate = new ConcurrencyGate(DEFAULTS.maxConcurrency);
 
   await app.register(cors, { origin: true });
@@ -57,7 +61,7 @@ export async function buildApp(options: AppOptions = {}): Promise<BuiltApp> {
     }
   });
 
-  app.get('/api/health', async () => ({ ok: true, inFlight: gate.inFlight }));
+  app.get('/api/health', async () => ({ ok: true, inFlight: gate.inFlight, backend: repo.backend }));
 
   registerModelsRoutes(app);
   registerProxyRoutes(app);
@@ -71,7 +75,7 @@ export async function buildApp(options: AppOptions = {}): Promise<BuiltApp> {
     repo,
     async close() {
       await app.close();
-      repo.close();
+      await repo.close();
     },
   };
 }

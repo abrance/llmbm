@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "llmbm 后端：模型列表 / SSE 代理透传 / 社区结果（Fastify + node:sqlite）",
+  "description": "llmbm 后端：模型列表 / SSE 代理透传 / 社区结果（Fastify；存储可选 Postgres 或 SQLite）",
   "main": "./dist/server.js",
   "scripts": {
     "dev": "tsc -p tsconfig.json && node --watch dist/server.js",
@@ -16,6 +16,10 @@
     "@fastify/cors": "^11.4.1",
     "@fastify/static": "^10.1.10",
     "@llmbm/core": "*",
-    "fastify": "^5.12.8"
+    "fastify": "^5.12.8",
+    "pg": "^8.23.1"
+  },
+  "devDependencies": {
+    "@types/pg": "^8.23.1"
   }
 }
