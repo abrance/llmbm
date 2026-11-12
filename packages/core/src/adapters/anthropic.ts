@@ -41,6 +41,14 @@ export const anthropicAdapter: Adapter = {
     };
     if (systemParts.length) body.system = systemParts.join('\n\n');
     if (req.temperature !== undefined) body.temperature = req.temperature;
+    // Anthropic：tools[].input_schema 直接接 OpenAI 的 parameters
+    if (req.tools && req.tools.length) {
+      body.tools = req.tools.map((t) => {
+        const out: Record<string, unknown> = { name: t.function.name, input_schema: t.function.parameters ?? { type: 'object' } };
+        if (t.function.description) out.description = t.function.description;
+        return out;
+      });
+    }
 
     return {
       url: joinUrl(cfg.baseUrl, '/v1', '/messages'),

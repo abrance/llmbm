@@ -121,6 +121,46 @@ test('anthropic buildChatRequest：system 提到顶层、max_tokens 必填、x-a
   assert.equal(body.stream, true);
 });
 
+test('anthropic buildChatRequest：tools 映射为 {name, description, input_schema}', () => {
+  const req = anthropicAdapter.buildChatRequest(
+    {
+      model: 'claude-sonnet-4',
+      messages: [{ role: 'user', content: '查天气' }],
+      tools: [
+        {
+          type: 'function',
+          function: {
+            name: 'get_weather',
+            description: '查天气',
+            parameters: { type: 'object', properties: { city: { type: 'string' } }, required: ['city'] },
+          },
+        },
+      ],
+    },
+    { baseUrl: 'https://api.anthropic.com', apiKey: 'sk-ant', model: 'claude-sonnet-4' },
+  );
+  const body = JSON.parse(req.body) as Record<string, unknown>;
+  assert.deepEqual(body.tools, [
+    {
+      name: 'get_weather',
+      description: '查天气',
+      input_schema: { type: 'object', properties: { city: { type: 'string' } }, required: ['city'] },
+    },
+  ]);
+});
+
+test('anthropic buildChatRequest：tools 缺 parameters 时 input_schema 补 object，缺 description 不写空串', () => {
+  const req = anthropicAdapter.buildChatRequest(
+    { model: 'm', messages: [], tools: [{ type: 'function', function: { name: 'ping' } }] },
+    { baseUrl: 'https://api.anthropic.com', apiKey: 'k', model: 'm' },
+  );
+  const body = JSON.parse(req.body) as { tools?: Array<Record<string, unknown>> };
+  const tools = body.tools ?? [];
+  assert.equal(tools.length, 1);
+  assert.equal(tools[0]?.['description'], undefined, '没有 description 时不得写空串');
+  assert.deepEqual(tools, [{ name: 'ping', input_schema: { type: 'object' } }]);
+});
+
 test('anthropic parseChatResponse：text/thinking/tool_use 分开、stop_reason 保留', () => {
   const res = anthropicAdapter.parseChatResponse(
     {

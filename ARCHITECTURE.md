@@ -79,6 +79,9 @@
 - anthropic：`/v1/messages`，`system` 单独字段，`max_tokens` 必填；SSE 事件类型 `content_block_delta`（`text_delta` / `input_json_delta`）、`message_delta`（`stop_reason`、`usage`）。
 - gemini：`/v1beta/models/{model}:streamGenerateContent?alt=sse`，`contents[].parts[].text`，`generationConfig`；`usageMetadata` 映射。
 - 429/5xx 退避由调用方做，但 adapter 提供 `isRetryable(status)`。
+- `ChatRequest.tools` 是协议无关的 `ToolSpec[]`（固定 OpenAI function 形状），各 adapter 自己映射：
+  openai 原样透传、anthropic `{name, description, input_schema}`、gemini `tools:[{functionDeclarations}]`。
+  调用方不按协议分支，也不在 adapter 之外改请求体。
 - **「流断但 HTTP 200」**：SSE 正常结束标记缺失时，`parseSseLine` 不负责判定，调用方用 `finishReason` 是否到达来判断；
   adapter 必须在 `parseChatResponse`/聚合结果里保证 `finishReason` 缺失可辨别。解析器不许静默吞掉不认识的帧。
 

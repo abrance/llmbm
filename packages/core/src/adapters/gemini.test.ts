@@ -146,6 +146,47 @@ test('gemini buildChatRequest：baseUrl 已含 /v1beta/models 或 /v1beta 不重
   assert.equal(req2.url, 'https://g.dev/v1beta/models/m:streamGenerateContent?alt=sse');
 });
 
+test('gemini buildChatRequest：tools 映射为 [{functionDeclarations}]', () => {
+  const req = geminiAdapter.buildChatRequest(
+    {
+      model: 'gemini-2.5-pro',
+      messages: [{ role: 'user', content: '查天气' }],
+      tools: [
+        {
+          type: 'function',
+          function: {
+            name: 'get_weather',
+            description: '查天气',
+            parameters: { type: 'object', properties: { city: { type: 'string' } } },
+          },
+        },
+      ],
+    },
+    { baseUrl: 'https://generativelanguage.googleapis.com', apiKey: 'AIza', model: 'gemini-2.5-pro' },
+  );
+  const body = JSON.parse(req.body) as Record<string, unknown>;
+  assert.deepEqual(body.tools, [
+    {
+      functionDeclarations: [
+        {
+          name: 'get_weather',
+          description: '查天气',
+          parameters: { type: 'object', properties: { city: { type: 'string' } } },
+        },
+      ],
+    },
+  ]);
+});
+
+test('gemini buildChatRequest：tools 缺 description/parameters 时不写空值', () => {
+  const req = geminiAdapter.buildChatRequest(
+    { model: 'm', messages: [], tools: [{ type: 'function', function: { name: 'ping' } }] },
+    { baseUrl: 'https://g.dev', apiKey: 'k', model: 'm' },
+  );
+  const body = JSON.parse(req.body) as { tools?: Array<{ functionDeclarations: Array<Record<string, unknown>> }> };
+  assert.deepEqual(body.tools, [{ functionDeclarations: [{ name: 'ping' }] }]);
+});
+
 test('gemini parseChatResponse：非流式 finishReason 缺失不补 STOP', () => {
   const res = geminiAdapter.parseChatResponse({ candidates: [{ content: { parts: [{ text: 'x' }] } }] }, 200);
   assert.equal(res.text, 'x');

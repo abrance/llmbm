@@ -113,6 +113,20 @@ export interface ChatMessage {
   content: string;
 }
 
+/**
+ * 工具声明。这里固定用 OpenAI 的 function 形状（题库与 mock 的原始形状），
+ * 由各协议 adapter 映射成自己的 wire 格式，调用方不按协议分支。
+ */
+export interface ToolSpec {
+  type: 'function';
+  function: {
+    name: string;
+    description?: string;
+    /** JSON Schema 形状的参数声明。 */
+    parameters?: unknown;
+  };
+}
+
 export interface ChatRequest {
   model: string;
   messages: ChatMessage[];
@@ -120,6 +134,8 @@ export interface ChatRequest {
   maxTokens?: number;
   /** 需要结构化输出时的提示（openai response_format / anthropic prefill 由适配器决定）。 */
   jsonMode?: boolean;
+  /** 工具声明，协议无关；缺省表示本次请求不带工具。 */
+  tools?: ToolSpec[];
 }
 
 export interface EndpointConfig {

@@ -35,6 +35,8 @@ export const openaiAdapter: Adapter = {
     if (req.temperature !== undefined) body.temperature = req.temperature;
     if (req.maxTokens !== undefined) body.max_tokens = req.maxTokens;
     if (req.jsonMode) body.response_format = { type: 'json_object' };
+    // OpenAI 的 tools 就是 ToolSpec 的原生形状，原样透传
+    if (req.tools && req.tools.length) body.tools = req.tools;
 
     return {
       url: joinUrl(cfg.baseUrl, '/v1', '/chat/completions'),

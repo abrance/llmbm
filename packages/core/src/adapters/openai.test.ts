@@ -138,6 +138,28 @@ test('openai buildChatRequest：baseUrl 已含 /v1 不重复拼接', () => {
   assert.equal(req.url, 'https://x.dev/v1/chat/completions');
 });
 
+test('openai buildChatRequest：tools 原样透传（ToolSpec 就是原生形状）', () => {
+  const tools = [
+    {
+      type: 'function' as const,
+      function: { name: 'get_weather', description: '查天气', parameters: { type: 'object', properties: { city: { type: 'string' } } } },
+    },
+  ];
+  const req = openaiAdapter.buildChatRequest(
+    { model: 'gpt-4o', messages: [{ role: 'user', content: 'hi' }], tools },
+    { baseUrl: 'https://api.example.com', apiKey: 'k', model: 'gpt-4o' },
+  );
+  assert.deepEqual((JSON.parse(req.body) as Record<string, unknown>).tools, tools);
+});
+
+test('openai buildChatRequest：没有 tools 时不写该字段', () => {
+  const req = openaiAdapter.buildChatRequest(
+    { model: 'm', messages: [] },
+    { baseUrl: 'https://x.dev', apiKey: 'k', model: 'm' },
+  );
+  assert.equal((JSON.parse(req.body) as Record<string, unknown>).tools, undefined);
+});
+
 test('openai parseChatResponse：非流式取 content/finish_reason/usage', () => {
   const res = openaiAdapter.parseChatResponse(
     { choices: [{ message: { content: 'ok', reasoning_content: 'r' }, finish_reason: 'stop' }], usage: { prompt_tokens: 1, completion_tokens: 2 } },

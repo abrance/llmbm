@@ -77,6 +77,19 @@ export const geminiAdapter: Adapter = {
     const body: Record<string, unknown> = { contents };
     if (systemParts.length) body.systemInstruction = { parts: [{ text: systemParts.join('\n\n') }] };
     if (Object.keys(generationConfig).length) body.generationConfig = generationConfig;
+    // Gemini：tools[].functionDeclarations，parameters 接 OpenAI 的 parameters
+    if (req.tools && req.tools.length) {
+      body.tools = [
+        {
+          functionDeclarations: req.tools.map((t) => {
+            const out: Record<string, unknown> = { name: t.function.name };
+            if (t.function.description) out.description = t.function.description;
+            if (t.function.parameters !== undefined) out.parameters = t.function.parameters;
+            return out;
+          }),
+        },
+      ];
+    }
 
     const model = req.model || cfg.model;
     return {
