@@ -7,7 +7,7 @@
 
 | 路径 | 所有者 | 内容 |
 |---|---|---|
-| `packages/core/src/judge/registry.ts`、`judge/index.ts`、`scoring/**`、`aggregate.ts`、`sampling/**`、`types.ts`、`index.ts` | mike | 判分/聚合/抽样的骨架与契约 |
+| `packages/core/src/judge/registry.ts`、`judge/index.ts`、`scoring/**`、`fingerprint/**`、`aggregate.ts`、`sampling/**`、`types.ts`、`index.ts` | mike | 判分/聚合/抽样/弱信号的骨架与契约 |
 | `packages/core/src/judge/rules/**` | pit | 19 类判定的实现与正反例单测 |
 | `packages/core/src/adapters/**` | pit | openai / anthropic / gemini 请求体与 SSE 归一化 |
 | `packages/core/src/data/**` | wof | 题库 JSON、分组、题目设计 |
