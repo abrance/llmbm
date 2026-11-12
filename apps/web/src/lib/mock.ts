@@ -29,7 +29,7 @@ export function mockModelIds(): string[] {
   return [...MOCK_MODELS];
 }
 
-function usageOf(prompt: string, text: string): Record<string, number> {
+function mockUsageOf(prompt: string, text: string): Record<string, number> {
   const promptTokens = Math.max(1, Math.ceil(prompt.length / 4));
   const completionTokens = Math.max(1, Math.ceil(text.length / 4));
   return {
@@ -84,7 +84,7 @@ export function buildMockChatPayload(
         finish_reason: answer.toolCalls ? 'tool_calls' : 'stop',
       },
     ],
-    usage: usageOf(prompt, answer.text),
+    usage: mockUsageOf(prompt, answer.text),
   };
 }
 
