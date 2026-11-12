@@ -92,6 +92,11 @@
 - `ChatRequest.tools` 是协议无关的 `ToolSpec[]`（固定 OpenAI function 形状），各 adapter 自己映射：
   openai 原样透传、anthropic `{name, description, input_schema}`、gemini `tools:[{functionDeclarations}]`。
   调用方不按协议分支，也不在 adapter 之外改请求体。
+- 多轮工具回填同理：`ChatMessage` 的 `role` 含 `'tool'`，assistant 侧用 `tool_calls`（`ToolCallSpec[]`，
+  `arguments` 是 JSON 字符串），工具结果用 `tool_call_id` 指回调用。adapter 各自映射：
+  openai 直传 `tool_calls` / `tool_call_id`；anthropic 改成 `tool_use` block + `user` 里的 `tool_result` block；
+  gemini 改成 `functionCall` part + `functionResponse`（按 `name` 回填，不用 id，故 `name` 可选但 gemini 需要）。
+  题库当前用不上多轮工具，但契约不留半截。
 - **「流断但 HTTP 200」**：SSE 正常结束标记缺失时，`parseSseLine` 不负责判定，调用方用 `finishReason` 是否到达来判断；
   adapter 必须在 `parseChatResponse`/聚合结果里保证 `finishReason` 缺失可辨别。解析器不许静默吞掉不认识的帧。
 

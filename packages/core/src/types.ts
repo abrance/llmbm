@@ -108,9 +108,24 @@ export interface ModelResponse {
 
 export type Protocol = 'openai' | 'anthropic' | 'gemini';
 
+export type ChatRole = 'system' | 'user' | 'assistant' | 'tool';
+
+/** assistant 消息里携带的工具调用。固定 OpenAI wire 形状（arguments 是 JSON 字符串），由 adapter 映射。 */
+export interface ToolCallSpec {
+  id?: string;
+  type?: 'function';
+  function: { name: string; arguments: string };
+}
+
 export interface ChatMessage {
-  role: 'system' | 'user' | 'assistant';
+  role: ChatRole;
   content: string;
+  /** 仅 assistant：本轮发起的工具调用。 */
+  tool_calls?: ToolCallSpec[];
+  /** 仅 role='tool'：这条结果回填的是哪一个工具调用。 */
+  tool_call_id?: string;
+  /** 仅 role='tool'：被调用的函数名（gemini 的 functionResponse 按名字回填，必需）。 */
+  name?: string;
 }
 
 /**

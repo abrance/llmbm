@@ -161,6 +161,50 @@ test('anthropic buildChatRequest：tools 缺 parameters 时 input_schema 补 obj
   assert.deepEqual(tools, [{ name: 'ping', input_schema: { type: 'object' } }]);
 });
 
+test('anthropic buildChatRequest：多轮工具回填映射成 tool_use / tool_result block', () => {
+  const req = anthropicAdapter.buildChatRequest(
+    {
+      model: 'claude-sonnet-4',
+      messages: [
+        { role: 'user', content: '查天气' },
+        {
+          role: 'assistant',
+          content: '我来查',
+          tool_calls: [{ id: 'toolu_1', type: 'function', function: { name: 'get_weather', arguments: '{"city":"北京"}' } }],
+        },
+        { role: 'tool', content: '{"temp":21}', tool_call_id: 'toolu_1' },
+      ],
+    },
+    { baseUrl: 'https://api.anthropic.com', apiKey: 'sk-ant', model: 'claude-sonnet-4' },
+  );
+  const body = JSON.parse(req.body) as { messages: Array<Record<string, unknown>> };
+  assert.deepEqual(body.messages[1], {
+    role: 'assistant',
+    content: [
+      { type: 'text', text: '我来查' },
+      { type: 'tool_use', id: 'toolu_1', name: 'get_weather', input: { city: '北京' } },
+    ],
+  });
+  assert.deepEqual(body.messages[2], {
+    role: 'user',
+    content: [{ type: 'tool_result', tool_use_id: 'toolu_1', content: '{"temp":21}' }],
+  });
+});
+
+test('anthropic buildChatRequest：工具参数不是合法 JSON 时不抛错，原文裹进 input._raw', () => {
+  const req = anthropicAdapter.buildChatRequest(
+    {
+      model: 'm',
+      messages: [
+        { role: 'assistant', content: '', tool_calls: [{ type: 'function', function: { name: 'f', arguments: '{oops' } }] },
+      ],
+    },
+    { baseUrl: 'https://api.anthropic.com', apiKey: 'k', model: 'm' },
+  );
+  const body = JSON.parse(req.body) as { messages: Array<{ content: Array<Record<string, unknown>> }> };
+  assert.deepEqual(body.messages[0]?.content, [{ type: 'tool_use', name: 'f', input: { _raw: '{oops' } }]);
+});
+
 test('anthropic parseChatResponse：text/thinking/tool_use 分开、stop_reason 保留', () => {
   const res = anthropicAdapter.parseChatResponse(
     {
