@@ -15,6 +15,10 @@
       "types": "./dist/judge/index.d.ts",
       "default": "./dist/judge/index.js"
     },
+    "./fingerprint": {
+      "types": "./dist/fingerprint/index.d.ts",
+      "default": "./dist/fingerprint/index.js"
+    },
     "./adapters": {
       "types": "./dist/adapters/index.d.ts",
       "default": "./dist/adapters/index.js"
