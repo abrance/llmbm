@@ -41,7 +41,14 @@ export async function buildApp(options: AppOptions = {}): Promise<BuiltApp> {
     if (!gate.tryEnter()) {
       return reply.code(429).send({ error: '服务端并发已满，请稍后重试' });
     }
-    (request as unknown as { gateHeld: boolean }).gateHeld = true;
+    const state = request as unknown as { gateHeld?: boolean };
+    state.gateHeld = true;
+    // 流式响应（hijack 或长流被客户端中断）不会触发 onResponse，用底层连接 close 兜底释放
+    reply.raw.on('close', () => {
+      if (!state.gateHeld) return;
+      state.gateHeld = false;
+      gate.leave();
+    });
   });
   app.addHook('onResponse', async (request) => {
     if ((request as unknown as { gateHeld?: boolean }).gateHeld) {
