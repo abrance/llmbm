@@ -1,8 +1,11 @@
 name: build
 
-# v0.1 只在本机验收，镜像构建不随 main 推送自动跑（spec §7）。
-# 等 v0.1 验收通过、上 cops 云环境（cloud3 k3s）时再恢复 push 触发。
+# 发布口径（spec §7）：main 的每次 push **不**发布镜像，只有打 release tag 才发。
+# 打 tag（v*）自动构建并推送；workflow_dispatch 保留手动验证（push 输入默认 false）。
 on:
+  push:
+    tags:
+      - 'v*'
   workflow_dispatch:
     inputs:
       push:
@@ -27,14 +30,14 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      # 手动触发默认不推送，只验证镜像能构建；需要推时勾 push 输入
-      # 单镜像：api 进程内托管前端产物（spec §7）
+      # tag 推送 = 发布（tag 名即镜像 tag，另打 latest）；手动触发默认不推送
       - name: Build image
         uses: docker/build-push-action@v6
         with:
           context: .
           file: deploy/Dockerfile
-          push: ${{ inputs.push }}
+          push: ${{ inputs.push || github.ref_type == 'tag' }}
           tags: |
             ghcr.io/${{ github.repository }}:latest
             ghcr.io/${{ github.repository }}:${{ github.sha }}
+            ${{ github.ref_type == 'tag' && format('ghcr.io/{0}:{1}', github.repository, github.ref_name) || '' }}
