@@ -1,0 +1,143 @@
+/**
+ * apps/web 的运行态类型（不属于 core 契约）。
+ * 只描述「一次跑测」在浏览器里的形状：题目结果、证据链、断点、worker 消息。
+ */
+import type {
+  JudgeCheck,
+  ModelResponse,
+  OutcomeReport,
+  QuestionScore,
+  QuestionStatus,
+} from '@llmbm/core';
+import type { BankQuestion } from '../data/bank.js';
+
+export type RunPhase = 'idle' | 'running' | 'cancelling' | 'done' | 'error';
+
+export interface ProgressState {
+  done: number;
+  total: number;
+  questionId?: string;
+  sampleIndex: number;
+  samples: number;
+}
+
+/** 提交社区 / 展示用，不含 Key。 */
+export interface EndpointSnapshot {
+  baseUrl: string;
+  model: string;
+  protocol: 'openai' | 'anthropic' | 'gemini';
+  /** 从 baseUrl 提取的域名；mock 端点固定为 mock.local。 */
+  domain: string;
+}
+
+export interface SampleResult {
+  index: number;
+  response: ModelResponse;
+  checks: JudgeCheck[];
+  score: QuestionScore;
+  /** 行去重比例，仅作退化信号展示，不参与判分。 */
+  repeatRatio: number;
+}
+
+export interface QuestionResult {
+  questionId: string;
+  group: string;
+  prompt: string;
+  judge: string;
+  core: boolean;
+  weight: number;
+  samples: SampleResult[];
+  /** 题均值（N 次采样）。 */
+  mean: number;
+  halfWidth: number;
+  status: QuestionStatus;
+}
+
+export interface RunRecord {
+  runId: string;
+  seed: string;
+  samples: number;
+  groups: string[];
+  endpoint: EndpointSnapshot;
+  questionBankVersion: string;
+  judgeRuleVersion: string;
+  startedAt: string;
+  finishedAt?: string;
+  cancelled: boolean;
+  expected: number;
+  results: QuestionResult[];
+  report: OutcomeReport;
+  injectFlaky: boolean;
+  /** 补测时间（只重跑失败题时更新）。 */
+  retriedAt?: string;
+}
+
+export interface RunCheckpoint {
+  runId: string;
+  questionBankVersion: string;
+  seed: string;
+  samples: number;
+  groups: string[];
+  endpoint: { baseUrl: string; model: string };
+  expected: number;
+  questionIds: string[];
+  done: Record<string, QuestionResult>;
+  updatedAt: string;
+  injectFlaky: boolean;
+}
+
+export interface StartOptions {
+  groups: string[];
+  seed: string;
+  samples: number;
+  includeUnavailable: boolean;
+  injectFlaky: boolean;
+  /** 只跑这些题（补测/单题重试）。 */
+  onlyIds?: string[];
+  /** 把结果合并回已有 run（补测），不新建 run。 */
+  mergeInto?: RunRecord;
+}
+
+/* ------------------------------------------------------------------ worker 协议 */
+
+export interface WorkerStart {
+  type: 'start';
+  runId: string;
+  endpoint: EndpointSnapshot & { apiKey: string; headers?: Record<string, string> };
+  questions: BankQuestion[];
+  samples: number;
+  seed: string;
+  done: Record<string, QuestionResult>;
+  injectFlaky: boolean;
+}
+
+export type WorkerRequest = WorkerStart | { type: 'cancel' };
+
+export type WorkerEvent =
+  | {
+      type: 'progress';
+      done: number;
+      total: number;
+      questionId: string;
+      sampleIndex: number;
+      samples: number;
+    }
+  | { type: 'question'; result: QuestionResult }
+  | {
+      type: 'done';
+      report: OutcomeReport;
+      results: QuestionResult[];
+      cancelled: boolean;
+    }
+  | { type: 'fatal'; error: string };
+
+/* ------------------------------------------------------------------ 展示辅助 */
+
+export interface Probe {
+  questionId: string;
+  group: string;
+  judge: string;
+  status: QuestionStatus;
+  score: number;
+  reason: string;
+}

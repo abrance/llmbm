@@ -12,6 +12,7 @@ export interface StoredEndpoint {
   apiKey: string;
   model: string;
   protocol?: 'openai' | 'anthropic' | 'gemini';
+  headers?: Record<string, string>;
 }
 
 /** localStorage 在 SSR/隐私模式下可能抛错，统一兜住，失败返回 undefined。 */
