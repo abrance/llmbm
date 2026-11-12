@@ -70,7 +70,7 @@ CREATE INDEX IF NOT EXISTS idx_results_domain_model ON results(domain, model, cr
 
 const INSERT_SQL = `INSERT INTO results (id, domain, model, protocol, capability_score,
   capability_half_width, format_score, stability, question_bank_version, judge_rule_version,
-  payload, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`;
+  payload, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING *`;
 const GET_SQL = 'SELECT * FROM results WHERE id = ?';
 
 const COLUMNS = [
@@ -151,7 +151,6 @@ export function listQuery(filter: { domain?: string; model?: string; limit?: num
 interface Driver {
   backend: Backend;
   all(sql: string, params: unknown[]): Promise<Record<string, unknown>[]>;
-  run(sql: string, params: unknown[]): Promise<void>;
   exec(sql: string): Promise<void>;
   close(): Promise<void>;
 }
@@ -165,9 +164,6 @@ function sqliteDriver(path: string): Driver {
     async all(sql, params) {
       return db.prepare(sql).all(...(params as (string | number)[])) as Record<string, unknown>[];
     },
-    async run(sql, params) {
-      db.prepare(sql).run(...(params as (string | number)[]));
-    },
     async exec(sql) {
       db.exec(sql);
     },
@@ -177,16 +173,20 @@ function sqliteDriver(path: string): Driver {
   };
 }
 
+/** 空闲连接被服务端断开（PG 重启、pg_terminate_backend、网络抖动）时 Pool 会发 error 事件；
+ * 不监听就是未捕获异常 → 进程直接退出。只打消息，绝不打 connectionString（含口令）。 */
+export function guardPoolErrors(pool: pg.Pool, log: (line: string) => void = console.error): void {
+  pool.on('error', (err: Error) => log(`pg pool 空闲连接错误：${err.message}`));
+}
+
 function pgDriver(connectionString: string): Driver {
   const pool = new pg.Pool({ connectionString });
+  guardPoolErrors(pool);
   return {
     backend: 'pg',
     async all(sql, params) {
       const res = await pool.query(toPgSql(sql, params.length), params);
       return res.rows as Record<string, unknown>[];
-    },
-    async run(sql, params) {
-      await pool.query(toPgSql(sql, params.length), params);
     },
     async exec(sql) {
       await pool.query(sql);
@@ -208,7 +208,7 @@ export async function openRepo(path = ':memory:', pgUrl?: string): Promise<Repo>
     async insert(input) {
       const id = `r_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
       const createdAt = new Date().toISOString();
-      await driver.run(INSERT_SQL, [
+      const inserted = await driver.all(INSERT_SQL, [
         id,
         input.domain,
         input.model,
@@ -222,8 +222,7 @@ export async function openRepo(path = ':memory:', pgUrl?: string): Promise<Repo>
         JSON.stringify(input.payload),
         createdAt,
       ]);
-      const row = await driver.all(GET_SQL, [id]);
-      const first = row[0];
+      const first = inserted[0];
       if (!first) throw new Error(`插入后读不到行：${id}`);
       return toRow(first);
     },

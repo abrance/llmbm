@@ -112,20 +112,29 @@ export async function migrate(args: Args, log: (line: string) => void = console.
     await pool.query(SCHEMA);
     let inserted = 0;
     let skipped = 0;
-    await pool.query('BEGIN');
+    // 事务必须钉在同一条连接上：pool.query 每次从池里借一条再归还，BEGIN 与后续语句
+    // 不保证同一连接，回滚会落在没有事务的连接上只回一条 WARNING。
+    const client = await pool.connect();
     try {
+      await client.query('BEGIN');
       for (const row of rows) {
-        const res = await pool.query(
+        const res = await client.query(
           toPgSql(INSERT_ONE, COLUMNS.length),
           COLUMNS.map((c) => row[c]),
         );
         if (res.rowCount === 1) inserted += 1;
         else skipped += 1;
       }
-      await pool.query('COMMIT');
+      await client.query('COMMIT');
     } catch (err) {
-      await pool.query('ROLLBACK');
+      try {
+        await client.query('ROLLBACK');
+      } catch (rbErr) {
+        log(`ROLLBACK 失败（连接可能已断）：${(rbErr as Error).message}`);
+      }
       throw err;
+    } finally {
+      client.release();
     }
     log(`写入完成：新增 ${inserted} 行，已存在跳过 ${skipped} 行`);
 
