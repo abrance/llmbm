@@ -3,15 +3,17 @@
  * 同源免 CORS、上层只部署一个单元；开发时 webRoot 不存在则跳过，Vite 自己服务前端。
  */
 import { existsSync, statSync } from 'node:fs';
-import { join } from 'node:path';
+import { join, resolve } from 'node:path';
 import fastifyStatic from '@fastify/static';
 import type { FastifyInstance } from 'fastify';
 
 /** 返回可托管的绝对目录；目录不存在或不是目录则返回 undefined。 */
 export function resolveWebRoot(candidate: string | undefined): string | undefined {
   if (!candidate) return undefined;
+  // 相对路径必须转绝对：@fastify/static 的 root 只收绝对路径，否则服务启动即抛错
+  const abs = resolve(candidate);
   try {
-    return statSync(candidate).isDirectory() ? candidate : undefined;
+    return statSync(abs).isDirectory() ? abs : undefined;
   } catch {
     return undefined;
   }
