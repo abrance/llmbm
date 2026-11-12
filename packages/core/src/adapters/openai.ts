@@ -5,6 +5,7 @@
  */
 import type {
   Adapter,
+  ChatMessage,
   ChatRequest,
   EndpointConfig,
   ModelResponse,
@@ -23,13 +24,24 @@ function sseData(line: string): string | undefined {
   return trimmed.slice(5).trim();
 }
 
+function toOpenAiMessage(m: ChatMessage): Record<string, unknown> {
+  if (m.role === 'tool') {
+    const out: Record<string, unknown> = { role: 'tool', content: m.content };
+    if (m.tool_call_id) out.tool_call_id = m.tool_call_id;
+    return out;
+  }
+  const out: Record<string, unknown> = { role: m.role, content: m.content };
+  if (m.tool_calls && m.tool_calls.length) out.tool_calls = m.tool_calls;
+  return out;
+}
+
 export const openaiAdapter: Adapter = {
   protocol: 'openai',
 
   buildChatRequest(req: ChatRequest, cfg: EndpointConfig): PreparedRequest {
     const body: Record<string, unknown> = {
       model: req.model || cfg.model,
-      messages: req.messages.map((m) => ({ role: m.role, content: m.content })),
+      messages: req.messages.map(toOpenAiMessage),
       stream: true,
     };
     if (req.temperature !== undefined) body.temperature = req.temperature;

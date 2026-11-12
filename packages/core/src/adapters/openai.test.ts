@@ -160,6 +160,38 @@ test('openai buildChatRequest：没有 tools 时不写该字段', () => {
   assert.equal((JSON.parse(req.body) as Record<string, unknown>).tools, undefined);
 });
 
+test('openai buildChatRequest：多轮工具回填保留 tool_calls / tool_call_id', () => {
+  const req = openaiAdapter.buildChatRequest(
+    {
+      model: 'm',
+      messages: [
+        { role: 'user', content: '查天气' },
+        {
+          role: 'assistant',
+          content: '',
+          tool_calls: [{ id: 'call_1', type: 'function', function: { name: 'get_weather', arguments: '{"city":"北京"}' } }],
+        },
+        { role: 'tool', content: '{"temp":21}', tool_call_id: 'call_1' },
+      ],
+    },
+    { baseUrl: 'https://x.dev', apiKey: 'k', model: 'm' },
+  );
+  const body = JSON.parse(req.body) as { messages: Array<Record<string, unknown>> };
+  assert.deepEqual(body.messages[1]?.tool_calls, [
+    { id: 'call_1', type: 'function', function: { name: 'get_weather', arguments: '{"city":"北京"}' } },
+  ]);
+  assert.deepEqual(body.messages[2], { role: 'tool', content: '{"temp":21}', tool_call_id: 'call_1' });
+});
+
+test('openai buildChatRequest：普通消息不多写 tool_calls 字段', () => {
+  const req = openaiAdapter.buildChatRequest(
+    { model: 'm', messages: [{ role: 'user', content: 'hi' }] },
+    { baseUrl: 'https://x.dev', apiKey: 'k', model: 'm' },
+  );
+  const body = JSON.parse(req.body) as { messages: Array<Record<string, unknown>> };
+  assert.equal(body.messages[0]?.tool_calls, undefined);
+});
+
 test('openai parseChatResponse：非流式取 content/finish_reason/usage', () => {
   const res = openaiAdapter.parseChatResponse(
     { choices: [{ message: { content: 'ok', reasoning_content: 'r' }, finish_reason: 'stop' }], usage: { prompt_tokens: 1, completion_tokens: 2 } },

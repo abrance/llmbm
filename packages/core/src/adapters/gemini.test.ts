@@ -187,6 +187,42 @@ test('gemini buildChatRequest：tools 缺 description/parameters 时不写空值
   assert.deepEqual(body.tools, [{ functionDeclarations: [{ name: 'ping' }] }]);
 });
 
+test('gemini buildChatRequest：多轮工具回填映射成 functionCall / functionResponse', () => {
+  const req = geminiAdapter.buildChatRequest(
+    {
+      model: 'gemini-2.5-pro',
+      messages: [
+        { role: 'user', content: '查天气' },
+        {
+          role: 'assistant',
+          content: '',
+          tool_calls: [{ type: 'function', function: { name: 'get_weather', arguments: '{"city":"北京"}' } }],
+        },
+        { role: 'tool', name: 'get_weather', content: '{"temp":21}', tool_call_id: 'ignored' },
+      ],
+    },
+    { baseUrl: 'https://g.dev', apiKey: 'k', model: 'gemini-2.5-pro' },
+  );
+  const body = JSON.parse(req.body) as { contents: Array<Record<string, unknown>> };
+  assert.deepEqual(body.contents[1], {
+    role: 'model',
+    parts: [{ functionCall: { name: 'get_weather', args: { city: '北京' } } }],
+  });
+  assert.deepEqual(body.contents[2], {
+    role: 'user',
+    parts: [{ functionResponse: { name: 'get_weather', response: { temp: 21 } } }],
+  });
+});
+
+test('gemini buildChatRequest：工具结果不是 JSON 对象时包成 {result}', () => {
+  const req = geminiAdapter.buildChatRequest(
+    { model: 'm', messages: [{ role: 'tool', name: 'f', content: '21 度' }] },
+    { baseUrl: 'https://g.dev', apiKey: 'k', model: 'm' },
+  );
+  const body = JSON.parse(req.body) as { contents: Array<{ parts: Array<Record<string, unknown>> }> };
+  assert.deepEqual(body.contents[0]?.parts, [{ functionResponse: { name: 'f', response: { result: '21 度' } } }]);
+});
+
 test('gemini parseChatResponse：非流式 finishReason 缺失不补 STOP', () => {
   const res = geminiAdapter.parseChatResponse({ candidates: [{ content: { parts: [{ text: 'x' }] } }] }, 200);
   assert.equal(res.text, 'x');

@@ -4,6 +4,7 @@
  */
 import type {
   Adapter,
+  ChatMessage,
   ChatRequest,
   EndpointConfig,
   ModelResponse,
@@ -23,6 +24,39 @@ function sseData(line: string): string | undefined {
   return trimmed.slice(5).trim();
 }
 
+function parseArguments(raw: string): unknown {
+  try {
+    return JSON.parse(raw);
+  } catch {
+    // 参数解析失败时仍要发出一个合法对象，原文不能丢；调用方能从 input._raw 看出异常
+    return { _raw: raw };
+  }
+}
+
+/** Anthropic 用 content block 数组表达工具：assistant 发 tool_use，工具结果用 user + tool_result 回填。 */
+function toAnthropicMessage(m: ChatMessage): Record<string, unknown> {
+  if (m.role === 'tool') {
+    const block: Record<string, unknown> = { type: 'tool_result', content: m.content };
+    if (m.tool_call_id) block.tool_use_id = m.tool_call_id;
+    return { role: 'user', content: [block] };
+  }
+  if (m.role === 'assistant' && m.tool_calls && m.tool_calls.length) {
+    const blocks: Array<Record<string, unknown>> = [];
+    if (m.content) blocks.push({ type: 'text', text: m.content });
+    for (const call of m.tool_calls) {
+      const block: Record<string, unknown> = {
+        type: 'tool_use',
+        name: call.function.name,
+        input: parseArguments(call.function.arguments),
+      };
+      if (call.id) block.id = call.id;
+      blocks.push(block);
+    }
+    return { role: 'assistant', content: blocks };
+  }
+  return { role: m.role, content: m.content };
+}
+
 export const anthropicAdapter: Adapter = {
   protocol: 'anthropic',
 
@@ -34,9 +68,7 @@ export const anthropicAdapter: Adapter = {
       model: req.model || cfg.model,
       // max_tokens 必填，缺省补一个安全值
       max_tokens: req.maxTokens ?? DEFAULT_MAX_TOKENS,
-      messages: req.messages
-        .filter((m) => m.role !== 'system')
-        .map((m) => ({ role: m.role, content: m.content })),
+      messages: req.messages.filter((m) => m.role !== 'system').map(toAnthropicMessage),
       stream: true,
     };
     if (systemParts.length) body.system = systemParts.join('\n\n');

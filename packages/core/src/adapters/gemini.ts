@@ -5,6 +5,7 @@
  */
 import type {
   Adapter,
+  ChatMessage,
   ChatRequest,
   EndpointConfig,
   ModelResponse,
@@ -58,6 +59,41 @@ function partsFunctionCalls(parts: unknown): Array<{ name: string; args: Record<
   return out;
 }
 
+/** 工具结果回填必须是对象；把文本包成 { result }。 */
+function toolResultPayload(text: string): Record<string, unknown> {
+  try {
+    const parsed: unknown = JSON.parse(text);
+    if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) return parsed as Record<string, unknown>;
+  } catch {
+    // 非 JSON 文本直接包一层
+  }
+  return { result: text };
+}
+
+/** Gemini 用 parts 表达工具：model 发 functionCall，回填用 user + functionResponse（按函数名，不用 id）。 */
+function toGeminiContent(m: ChatMessage): Record<string, unknown> {
+  if (m.role === 'tool') {
+    const fn: Record<string, unknown> = { name: m.name ?? '', response: toolResultPayload(m.content) };
+    return { role: 'user', parts: [{ functionResponse: fn }] };
+  }
+  if (m.role === 'assistant' && m.tool_calls && m.tool_calls.length) {
+    const parts: Array<Record<string, unknown>> = [];
+    if (m.content) parts.push({ text: m.content });
+    for (const call of m.tool_calls) {
+      let args: unknown = {};
+      try {
+        args = JSON.parse(call.function.arguments);
+      } catch {
+        // 参数不是合法 JSON 时不发该声明，避免整请求 400
+        continue;
+      }
+      parts.push({ functionCall: { name: call.function.name, args } });
+    }
+    return { role: 'model', parts };
+  }
+  return { role: m.role === 'assistant' ? 'model' : 'user', parts: [{ text: m.content }] };
+}
+
 export const geminiAdapter: Adapter = {
   protocol: 'gemini',
 
@@ -65,9 +101,7 @@ export const geminiAdapter: Adapter = {
     const systemParts = req.messages.filter((m) => m.role === 'system').map((m) => m.content);
     if (req.jsonMode) systemParts.push(JSON_ONLY);
 
-    const contents = req.messages
-      .filter((m) => m.role !== 'system')
-      .map((m) => ({ role: m.role === 'assistant' ? 'model' : 'user', parts: [{ text: m.content }] }));
+    const contents = req.messages.filter((m) => m.role !== 'system').map(toGeminiContent);
 
     const generationConfig: Record<string, unknown> = {};
     if (req.temperature !== undefined) generationConfig.temperature = req.temperature;
