@@ -119,7 +119,7 @@ export function ConnectPage() {
                 name="baseUrl"
                 label="Base URL"
                 rules={[{ required: true, message: '填中转站地址，如 https://api.example.com/v1' }]}
-                extra="OpenAI 兼容地址，末尾可带或不带 /v1；内置 Mock 填 /__mock/v1。"
+                extra="填中转站地址：OpenAI 兼容可带或不带 /v1，Anthropic / Gemini 填各自 API 根地址；内置 Mock 填 /__mock/v1。"
               >
                 <Input placeholder="https://api.example.com/v1" autoComplete="off" spellCheck={false} />
               </Form.Item>
@@ -134,9 +134,9 @@ export function ConnectPage() {
               <Form.Item name="protocol" label="协议">
                 <Select
                   options={[
-                    { label: 'OpenAI 兼容（本版可跑）', value: 'openai' },
-                    { label: 'Anthropic（适配器待 core 合入）', value: 'anthropic' },
-                    { label: 'Gemini（适配器待 core 合入）', value: 'gemini' },
+                    { label: 'OpenAI 兼容', value: 'openai' },
+                    { label: 'Anthropic', value: 'anthropic' },
+                    { label: 'Gemini', value: 'gemini' },
                   ]}
                 />
               </Form.Item>
