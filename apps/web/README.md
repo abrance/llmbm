@@ -36,9 +36,11 @@ core 题（答错该题直接 0，§2.3）：`basic-exact-001`、`basic-contains
 
 ## 3. 内置 Mock 端点
 
-- 地址：`/__mock/v1`（Vite dev / preview 中间件，生产构建不包含）
+- 地址：`mock://builtin`（浏览器本地分流，**不发任何 HTTP 请求**；dev 与构建产物行为一致）
 - 模型：`mock-llmbm-pro`、`mock-llmbm-lite`
-- 答案来源：题库的 `mock` 字段，按 `x-llmbm-question-id` 头匹配；延迟 25–80ms/次
+- 答案来源：题库的 `mock` 字段，按题号在本地生成一份 OpenAI 形状的 wire payload，
+  再交给 core 的 `openaiAdapter.parseChatResponse` 解析（D1：解析仍只有 core 一份）
+- 延迟：25–80ms/次（本地模拟，保留进度、取消与耗时统计的手感）
 - 故障注入：开启后 `basic-exact-002` 的第 2 次采样返回 `Cat`，用来演示区间、探针、单题重试与补测
 - 它只是流程演示，不代表任何真实模型能力
 

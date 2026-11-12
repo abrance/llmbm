@@ -2,9 +2,13 @@
  * 浏览器侧最小 HTTP 传输层。
  *
  * 只负责「传输语义」：fetch、超时、AbortController 真取消、429/5xx 退避重试、
- * mock 端点分流、域名截断。请求形状（URL / 请求体 / 鉴权头）与响应解析（JSON /
+ * 内置 Mock 分流、域名截断。请求形状（URL / 请求体 / 鉴权头）与响应解析（JSON /
  * SSE 帧 / usage / tool_calls）全部来自 @llmbm/core 的 adapters（D1），这里不再
  * 写第二份协议映射。
+ *
+ * 内置 Mock 不发任何 HTTP：本地造 wire payload 后仍交给 core 的
+ * `openaiAdapter.parseChatResponse` 解析，所以构建产物（api 静态托管 dist）里
+ * 演示按钮同样可用，不依赖只在 dev 生效的 Vite 中间件。
  */
 import {
   createStreamAccumulator,
@@ -17,9 +21,10 @@ import type {
   EndpointConfig,
   ModelResponse,
   PreparedRequest,
-  Protocol,
+  ToolSpec,
 } from '@llmbm/core';
 import type { BankQuestion } from '../data/bank.js';
+import { mockChatResponse, mockModelIds, type MockQuestionLike } from './mock.ts';
 
 export interface ChatOptions {
   signal: AbortSignal;
@@ -32,8 +37,12 @@ const MAX_RETRIES = 2;
 const MAX_EVIDENCE_FRAMES = 500;
 
 export function isMockBase(baseUrl: string): boolean {
-  return baseUrl.startsWith('/__mock') || baseUrl.startsWith('mock://');
+  // `mock://` 是当前预设；`/__mock` 仅为兼容旧 localStorage 里的配置。
+  return baseUrl.startsWith('mock://') || baseUrl.startsWith('/__mock');
 }
+
+/** 内置 Mock 的当前预设地址；不指向任何真实 HTTP 端点。 */
+export const MOCK_BASE_URL = 'mock://builtin';
 
 /** 社区展示只到域名；mock 端点固定 mock.local，避免把协议/路径带出去。 */
 export function domainOf(baseUrl: string): string {
@@ -52,33 +61,16 @@ function chatMessagesOf(question: BankQuestion): ChatMessage[] {
   return messages;
 }
 
-/**
- * 题库里的 tools 是 OpenAI 声明形状。core 的 ChatRequest 目前还没有 tools 字段，
- * 所以这里只在 openai 协议下原样透传；anthropic / gemini 的工具声明形状不同，
- * 不在这里猜，等 core 契约扩展（已报给 mike）。mock 端点按题号返回预置工具调用，
- * 不依赖请求里的 tools。
- */
-function attachTools(prepared: PreparedRequest, protocol: Protocol, tools: unknown[] | undefined): PreparedRequest {
-  if (!tools || tools.length === 0 || protocol !== 'openai') return prepared;
-  try {
-    const body = JSON.parse(prepared.body) as Record<string, unknown>;
-    body['tools'] = tools;
-    return { ...prepared, body: JSON.stringify(body) };
-  } catch {
-    return prepared;
-  }
-}
-
 export interface PreparedChat {
   adapter: Adapter;
   request: PreparedRequest;
 }
 
-/** 构造请求：协议判定、URL、鉴权头、请求体全部交给 core adapter。 */
+/** 构造请求：协议判定、URL、鉴权头、请求体（含 tools 映射）全部交给 core adapter。 */
 export function prepareChatRequest(
   ep: EndpointConfig,
   messages: ChatMessage[],
-  options: { tools?: unknown[]; maxTokens?: number } = {},
+  options: { tools?: ToolSpec[]; maxTokens?: number } = {},
 ): PreparedChat {
   const adapter = resolveAdapter(ep);
   const request = adapter.buildChatRequest(
@@ -87,10 +79,11 @@ export function prepareChatRequest(
       messages,
       temperature: 0,
       ...(options.maxTokens !== undefined ? { maxTokens: options.maxTokens } : {}),
+      ...(options.tools !== undefined ? { tools: options.tools } : {}),
     },
     ep,
   );
-  return { adapter, request: attachTools(request, adapter.protocol, options.tools) };
+  return { adapter, request };
 }
 
 function sseData(line: string): string | undefined {
@@ -163,9 +156,25 @@ function retryDelay(res: Response, attempt: number): number {
 interface ExecuteOptions {
   signal: AbortSignal;
   timeoutMs: number;
-  headers?: Record<string, string>;
-  tools?: unknown[];
+  tools?: ToolSpec[];
   maxTokens?: number;
+  /** 内置 Mock 的本地输入；只有 isMockBase(ep.baseUrl) 时使用。 */
+  mock?: { question: MockQuestionLike; sampleIndex: number; injectFlaky: boolean };
+}
+
+/** 内置 Mock：不构造请求、不发 fetch，本地造 payload 后交给 core 解析。 */
+async function executeMock(ep: EndpointConfig, opts: ExecuteOptions): Promise<ModelResponse> {
+  const mock = opts.mock ?? { question: { id: '' }, sampleIndex: 0, injectFlaky: false };
+  // 很短的模拟延迟，让进度、取消、耗时统计与真实请求的手感一致。
+  const delay = 25 + ((mock.question.id.length * 13 + mock.sampleIndex * 7) % 55);
+  const started = performance.now();
+  await sleep(delay, opts.signal);
+  const response = mockChatResponse(mock.question, {
+    model: ep.model,
+    sampleIndex: mock.sampleIndex,
+    injectFlaky: mock.injectFlaky,
+  });
+  return { ...response, latencyMs: Math.round(performance.now() - started) };
 }
 
 async function execute(
@@ -174,11 +183,13 @@ async function execute(
   opts: ExecuteOptions,
   fetchImpl: typeof fetch,
 ): Promise<ModelResponse> {
+  if (isMockBase(ep.baseUrl)) return executeMock(ep, opts);
+
   const { adapter, request } = prepareChatRequest(ep, messages, {
     ...(opts.tools !== undefined ? { tools: opts.tools } : {}),
     ...(opts.maxTokens !== undefined ? { maxTokens: opts.maxTokens } : {}),
   });
-  const headers: Record<string, string> = { ...request.headers, ...(opts.headers ?? {}) };
+  const headers: Record<string, string> = { ...request.headers };
 
   for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
     const controller = new AbortController();
@@ -279,11 +290,7 @@ export async function chatOnce(
     {
       signal: opts.signal,
       timeoutMs: question.timeoutMs ?? 30000,
-      headers: {
-        'x-llmbm-question-id': question.id,
-        'x-llmbm-sample': String(opts.sampleIndex),
-        ...(opts.injectFlaky ? { 'x-llmbm-inject': 'flaky' } : {}),
-      },
+      mock: { question, sampleIndex: opts.sampleIndex, injectFlaky: opts.injectFlaky },
       ...(question.tools !== undefined ? { tools: question.tools } : {}),
     },
     fetchImpl,
@@ -304,15 +311,18 @@ async function requestModels(request: PreparedRequest, adapter: Adapter, fetchIm
 }
 
 /**
- * 拉模型列表：mock 与 anthropic/gemini 直接用 core 的 buildModelsRequest；
- * OpenAI 兼容仍走同源 /api/models 代理（避开浏览器 CORS，代理只转发 Authorization）。
+ * 拉模型列表：Mock 直接本地返回两个演示模型；anthropic/gemini 直接用 core 的
+ * buildModelsRequest；OpenAI 兼容仍走同源 /api/models 代理（避开浏览器 CORS，
+ * 代理只转发 Authorization）。
  */
 export async function fetchModels(ep: EndpointConfig, fetchImpl: typeof fetch = fetch): Promise<string[]> {
+  if (isMockBase(ep.baseUrl)) return mockModelIds();
+
   const adapter = resolveAdapter(ep);
   const request = adapter.buildModelsRequest?.(ep);
   if (!request) throw new Error(`协议 ${adapter.protocol} 不支持拉取模型列表`);
 
-  if (!isMockBase(ep.baseUrl) && adapter.protocol === 'openai') {
+  if (adapter.protocol === 'openai') {
     const res = await fetchImpl(`/api/models?baseUrl=${encodeURIComponent(ep.baseUrl)}`, {
       headers: ep.apiKey.trim() ? { authorization: `Bearer ${ep.apiKey.trim()}` } : {},
     });
@@ -338,7 +348,12 @@ export async function pingEndpoint(
   const response = await execute(
     ep,
     [{ role: 'user', content: '只回复 ok' }],
-    { signal: new AbortController().signal, timeoutMs: 15000, maxTokens: 8 },
+    {
+      signal: new AbortController().signal,
+      timeoutMs: 15000,
+      maxTokens: 8,
+      mock: { question: { id: '', prompt: '只回复 ok' }, sampleIndex: 0, injectFlaky: false },
+    },
     fetchImpl,
   );
   if (response.error) throw new Error(response.error);

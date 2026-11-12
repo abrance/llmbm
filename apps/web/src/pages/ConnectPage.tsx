@@ -2,12 +2,12 @@ import { Alert, App, Button, Card, Col, Divider, Form, Input, Row, Select, Space
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { PageHeader } from '../components/Layout.js';
-import { fetchModels, isMockBase, pingEndpoint } from '../lib/transport.js';
+import { MOCK_BASE_URL, fetchModels, isMockBase, pingEndpoint } from '../lib/transport.js';
 import { useRun } from '../state/runContext.js';
 import type { StoredEndpoint } from '../lib/store.js';
 
 const MOCK: StoredEndpoint = {
-  baseUrl: '/__mock/v1',
+  baseUrl: MOCK_BASE_URL,
   apiKey: 'mock-key',
   model: 'mock-llmbm-pro',
   protocol: 'openai',
@@ -119,7 +119,7 @@ export function ConnectPage() {
                 name="baseUrl"
                 label="Base URL"
                 rules={[{ required: true, message: '填中转站地址，如 https://api.example.com/v1' }]}
-                extra="填中转站地址：OpenAI 兼容可带或不带 /v1，Anthropic / Gemini 填各自 API 根地址；内置 Mock 填 /__mock/v1。"
+                extra="填中转站地址：OpenAI 兼容可带或不带 /v1，Anthropic / Gemini 填各自 API 根地址；内置 Mock 点右上角「用内置 Mock 直接体验」，不会发任何请求。"
               >
                 <Input placeholder="https://api.example.com/v1" autoComplete="off" spellCheck={false} />
               </Form.Item>

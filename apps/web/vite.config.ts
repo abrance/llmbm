@@ -1,11 +1,10 @@
 import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
-import { mockApiPlugin } from './mock/plugin.js';
 
 const API_TARGET = process.env.LLMBM_API ?? 'http://127.0.0.1:8787';
 
 export default defineConfig({
-  plugins: [react(), mockApiPlugin()],
+  plugins: [react()],
   server: {
     port: 5173,
     proxy: {

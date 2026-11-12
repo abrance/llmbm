@@ -164,32 +164,89 @@ test('chatOnce：429/5xx 退避重试，第二次成功', async () => {
   assert.equal(out.httpStatus, 200);
 });
 
-test('fetchModels：mock 端点用 core 的 buildModelsRequest', async () => {
-  const seen: string[] = [];
-  const fetchImpl = (async (input: RequestInfo | URL) => {
-    seen.push(String(input));
-    return jsonResponse({ data: [{ id: 'mock-llmbm-pro' }, { id: 'mock-llmbm-lite' }] });
+test('fetchModels：mock 端点本地返回两个演示模型，不发任何请求', async () => {
+  let calls = 0;
+  const fetchImpl = (async () => {
+    calls += 1;
+    throw new Error('mock 分支不该发请求');
   }) as unknown as typeof fetch;
 
   const list = await fetchModels(
-    { baseUrl: '/__mock/v1', apiKey: 'mock-key', model: 'mock-llmbm-pro', protocol: 'openai' },
+    { baseUrl: 'mock://builtin', apiKey: 'mock-key', model: 'mock-llmbm-pro', protocol: 'openai' },
     fetchImpl,
   );
 
-  assert.deepEqual(seen, ['/__mock/v1/models']);
+  assert.equal(calls, 0);
   assert.deepEqual(list, ['mock-llmbm-pro', 'mock-llmbm-lite']);
 });
 
-test('工具题：OpenAI 兼容下 tools 原样透传（core 契约暂缺 tools 字段）', () => {
-  const tools = [{ type: 'function', function: { name: 'get_weather', parameters: { type: 'object' } } }];
-  const { request } = prepareChatRequest(OPENAI, [{ role: 'user', content: '查天气' }], { tools });
+test('工具题：OpenAI 兼容下 tools 由 core 原样透传', () => {
+  const tools = [{ type: 'function', function: { name: 'get_weather', parameters: { type: 'object' } } }] as const;
+  const { request } = prepareChatRequest(OPENAI, [{ role: 'user', content: '查天气' }], { tools: [...tools] });
   const body = JSON.parse(request.body) as Record<string, unknown>;
   assert.deepEqual(body['tools'], tools);
 });
 
-test('工具题：anthropic 不猜工具声明形状，等 core 扩展 ChatRequest.tools', () => {
-  const tools = [{ type: 'function', function: { name: 'get_weather', parameters: { type: 'object' } } }];
-  const { request } = prepareChatRequest(ANTHROPIC, [{ role: 'user', content: '查天气' }], { tools });
+test('工具题：anthropic 由 core 映射成 input_schema，web 不做协议分支', () => {
+  const tools = [{ type: 'function', function: { name: 'get_weather', parameters: { type: 'object' } } }] as const;
+  const { request } = prepareChatRequest(ANTHROPIC, [{ role: 'user', content: '查天气' }], { tools: [...tools] });
   const body = JSON.parse(request.body) as Record<string, unknown>;
-  assert.equal(body['tools'], undefined);
+  assert.deepEqual(body['tools'], [
+    { name: 'get_weather', input_schema: { type: 'object' } },
+  ]);
+});
+
+test('chatOnce：Mock 分支不发 HTTP，本地 payload 仍由 core 解析', async () => {
+  let calls = 0;
+  const fetchImpl = (async () => {
+    calls += 1;
+    throw new Error('mock 分支不该发请求');
+  }) as unknown as typeof fetch;
+
+  const mockQuestion = question({ mock: { text: '42' } });
+  const out = await chatOnce(
+    { baseUrl: 'mock://builtin', apiKey: 'mock-key', model: 'mock-llmbm-pro', protocol: 'openai' },
+    mockQuestion,
+    options(),
+    fetchImpl,
+  );
+
+  assert.equal(calls, 0);
+  assert.equal(out.error, undefined);
+  assert.equal(out.text, '42');
+  assert.equal(out.finishReason, 'stop');
+  assert.equal(out.httpStatus, 200);
+  assert.equal((out.raw as { object?: string }).object, 'chat.completion');
+});
+
+test('chatOnce：Mock 的工具题由 core 解析出 toolCalls，故障注入仍生效', async () => {
+  let calls = 0;
+  const fetchImpl = (async () => {
+    calls += 1;
+    throw new Error('mock 分支不该发请求');
+  }) as unknown as typeof fetch;
+
+  const toolQuestion = question({
+    id: 'advanced-tool-001',
+    mock: { toolCalls: [{ name: 'get_weather', arguments: '{"city":"北京"}' }] },
+  });
+  const toolOut = await chatOnce(
+    { baseUrl: 'mock://builtin', apiKey: 'mock-key', model: 'mock-llmbm-pro', protocol: 'openai' },
+    toolQuestion,
+    options(),
+    fetchImpl,
+  );
+  assert.equal(toolOut.finishReason, 'tool_calls');
+  assert.equal(toolOut.toolCalls?.[0]?.name, 'get_weather');
+  assert.deepEqual(toolOut.toolCalls?.[0]?.args, { city: '北京' });
+
+  const flakyQuestion = question({ id: 'basic-exact-002', mock: { text: 'cat' } });
+  const flakyOut = await chatOnce(
+    { baseUrl: 'mock://builtin', apiKey: 'mock-key', model: 'mock-llmbm-pro', protocol: 'openai' },
+    flakyQuestion,
+    { signal: new AbortController().signal, sampleIndex: 1, injectFlaky: true },
+    fetchImpl,
+  );
+  assert.equal(flakyOut.text, 'Cat');
+  assert.equal(calls, 0);
 });
