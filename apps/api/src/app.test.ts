@@ -45,6 +45,8 @@ test('api: health 正常', async () => {
     const res = await app.inject({ method: 'GET', url: '/api/health' });
     assert.equal(res.statusCode, 200);
     assert.equal(res.json().ok, true);
+    // 云端验收证据：实际用的存储后端
+    assert.equal(res.json().backend, 'sqlite');
   } finally {
     await close();
   }

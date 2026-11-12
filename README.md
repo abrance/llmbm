@@ -44,7 +44,7 @@ packages/core/         判分内核，零运行时依赖，前后端共用（唯
 apps/web/              React 18 + Vite + antd，纯前端跑测（Key 不出浏览器，D4）
 apps/api/              Fastify：/api/models、/api/proxy（SSE 透传）、/api/community/*，生产态托管 apps/web/dist
   src/plugins/guard    D5 代理护栏：目标校验 / 并发上限 / 超时 / body 上限
-  src/repo/            唯一碰 SQL 的一层（node:sqlite，换 PG 只改这里）
+  src/repo/            唯一碰 SQL 的一层（一套 SQL + 两个瘦驱动：Postgres / SQLite，按 LLMBM_PG_URL 选）
 deploy/                Dockerfile（单镜像：api 进程内托管前端产物，同源免 CORS）
 docs/SPEC.md           产品规格与架构基线（sor，v0.1）
 ARCHITECTURE.md        接口契约与目录所有权（mike）
