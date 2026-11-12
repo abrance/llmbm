@@ -2,6 +2,7 @@ import { Alert, App, Button, Card, Col, Divider, Form, Input, Row, Select, Space
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { PageHeader } from '../components/Layout.js';
+import { MOCK_AVAILABLE } from '../lib/build.js';
 import { fetchModels, isMockBase, pingEndpoint } from '../lib/transport.js';
 import { useRun } from '../state/runContext.js';
 import type { StoredEndpoint } from '../lib/store.js';
@@ -99,11 +100,22 @@ export function ConnectPage() {
         title="接入配置"
         subtitle="填一个中转站的 Base URL、Key 和模型 ID。Key 只写进本机浏览器，不经过服务端存储；跑测请求默认由浏览器直接发往你填的地址。"
         extra={
-          <Button onClick={useMock} type="primary" ghost>
-            用内置 Mock 直接体验
-          </Button>
+          MOCK_AVAILABLE ? (
+            <Button onClick={useMock} type="primary" ghost>
+              用内置 Mock 直接体验
+            </Button>
+          ) : null
         }
       />
+
+      {!MOCK_AVAILABLE && isMock ? (
+        <Alert
+          type="warning"
+          showIcon
+          message="当前配置指向内置 Mock，但生产环境不包含 Mock 端点"
+          description="请把 Base URL、API Key 和模型改成真实中转站配置后再保存。"
+        />
+      ) : null}
 
       <Row gutter={20}>
         <Col xs={24} lg={15}>
@@ -119,14 +131,23 @@ export function ConnectPage() {
                 name="baseUrl"
                 label="Base URL"
                 rules={[{ required: true, message: '填中转站地址，如 https://api.example.com/v1' }]}
-                extra="填中转站地址：OpenAI 兼容可带或不带 /v1，Anthropic / Gemini 填各自 API 根地址；内置 Mock 填 /__mock/v1。"
+                extra={
+                  MOCK_AVAILABLE
+                    ? '填中转站地址：OpenAI 兼容可带或不带 /v1，Anthropic / Gemini 填各自 API 根地址；内置 Mock 填 /__mock/v1。'
+                    : '填中转站地址：OpenAI 兼容可带或不带 /v1，Anthropic / Gemini 填各自 API 根地址。'
+                }
               >
                 <Input placeholder="https://api.example.com/v1" autoComplete="off" spellCheck={false} />
               </Form.Item>
               <Form.Item
                 name="apiKey"
                 label="API Key"
-                rules={[{ required: !isMock, message: '填中转站 Key；Mock 模式可留空' }]}
+                rules={[
+                  {
+                    required: !(MOCK_AVAILABLE && isMock),
+                    message: MOCK_AVAILABLE ? '填中转站 Key；Mock 模式可留空' : '填中转站 Key',
+                  },
+                ]}
                 extra="只保存在本机 localStorage；导出结果、提交社区都不会包含它。"
               >
                 <Input.Password placeholder="sk-..." autoComplete="off" />
@@ -158,7 +179,13 @@ export function ConnectPage() {
                     )}
                   />
                 ) : (
-                  <Input placeholder="gpt-4o-mini / claude-sonnet-4 / mock-llmbm-pro" autoComplete="off" spellCheck={false} />
+                  <Input
+                    placeholder={
+                      MOCK_AVAILABLE ? 'gpt-4o-mini / claude-sonnet-4 / mock-llmbm-pro' : 'gpt-4o-mini / claude-sonnet-4'
+                    }
+                    autoComplete="off"
+                    spellCheck={false}
+                  />
                 )}
               </Form.Item>
               <Space wrap>
@@ -209,14 +236,18 @@ export function ConnectPage() {
                   <strong>看结果</strong>：能力分带区间、维度分、问题探针、证据链。
                 </li>
               </ol>
-              <Divider />
-              <Typography.Text type="secondary">
-                当前内置 Mock 模型：<Tag>mock-llmbm-pro</Tag>
-                <Tag>mock-llmbm-lite</Tag>
-              </Typography.Text>
-              <Typography.Paragraph type="secondary" style={{ marginTop: 8, marginBottom: 0 }}>
-                Mock 只用于演示流程：答案来自题库的演示字段，不代表任何真实模型的能力。
-              </Typography.Paragraph>
+              {MOCK_AVAILABLE ? (
+                <>
+                  <Divider />
+                  <Typography.Text type="secondary">
+                    当前内置 Mock 模型：<Tag>mock-llmbm-pro</Tag>
+                    <Tag>mock-llmbm-lite</Tag>
+                  </Typography.Text>
+                  <Typography.Paragraph type="secondary" style={{ marginTop: 8, marginBottom: 0 }}>
+                    Mock 只用于演示流程：答案来自题库的演示字段，不代表任何真实模型的能力。
+                  </Typography.Paragraph>
+                </>
+              ) : null}
             </Card>
             <Alert
               type="info"

@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import type { EndpointConfig } from '@llmbm/core';
+import type { EndpointConfig, ToolSpec } from '@llmbm/core';
 import type { BankQuestion } from '../data/bank.ts';
 import { chatOnce, fetchModels, prepareChatRequest } from './transport.ts';
 
@@ -180,16 +180,35 @@ test('fetchModels：mock 端点用 core 的 buildModelsRequest', async () => {
   assert.deepEqual(list, ['mock-llmbm-pro', 'mock-llmbm-lite']);
 });
 
-test('工具题：OpenAI 兼容下 tools 原样透传（core 契约暂缺 tools 字段）', () => {
-  const tools = [{ type: 'function', function: { name: 'get_weather', parameters: { type: 'object' } } }];
+test('工具题：OpenAI 兼容下 tools 由 core 原样透传', () => {
+  const tools: ToolSpec[] = [
+    { type: 'function', function: { name: 'get_weather', parameters: { type: 'object' } } },
+  ];
   const { request } = prepareChatRequest(OPENAI, [{ role: 'user', content: '查天气' }], { tools });
   const body = JSON.parse(request.body) as Record<string, unknown>;
   assert.deepEqual(body['tools'], tools);
 });
 
-test('工具题：anthropic 不猜工具声明形状，等 core 扩展 ChatRequest.tools', () => {
-  const tools = [{ type: 'function', function: { name: 'get_weather', parameters: { type: 'object' } } }];
+test('工具题：anthropic 由 core 映射为 input_schema', () => {
+  const tools: ToolSpec[] = [
+    { type: 'function', function: { name: 'get_weather', parameters: { type: 'object' } } },
+  ];
   const { request } = prepareChatRequest(ANTHROPIC, [{ role: 'user', content: '查天气' }], { tools });
   const body = JSON.parse(request.body) as Record<string, unknown>;
-  assert.equal(body['tools'], undefined);
+  assert.deepEqual(body['tools'], [{ name: 'get_weather', input_schema: { type: 'object' } }]);
+});
+
+test('工具题：gemini 由 core 映射为 functionDeclarations', () => {
+  const tools: ToolSpec[] = [
+    { type: 'function', function: { name: 'get_weather', parameters: { type: 'object' } } },
+  ];
+  const gemini: EndpointConfig = {
+    baseUrl: 'https://generativelanguage.googleapis.com',
+    apiKey: 'gemini-key',
+    model: 'gemini-2.5-pro',
+    protocol: 'gemini',
+  };
+  const { request } = prepareChatRequest(gemini, [{ role: 'user', content: '查天气' }], { tools });
+  const body = JSON.parse(request.body) as Record<string, unknown>;
+  assert.deepEqual(body['tools'], [{ functionDeclarations: [{ name: 'get_weather', parameters: { type: 'object' } }] }]);
 });

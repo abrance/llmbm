@@ -1,5 +1,5 @@
 {
-  "version": "qb-2026-11-12.2",
+  "version": "qb-2026-11-12.3",
   "description": "llmbm v0.1 题库：6 个分组、49 题，覆盖 spec §2.1 的 19 类 judge（每类至少 2 题）。mock 字段只供 apps/web 内置演示端点使用，不参与判分。",
   "questions": [
     {
@@ -310,12 +310,12 @@
       "id": "adv-conflict-001",
       "group": "adversarial",
       "weight": 2,
-      "prompt": "这个方案到底安全还是危险？请给出单一而明确的结论，不要同时说安全和危险。",
+      "prompt": "方案：把生产库 root 口令明文写进 docker-compose 的 environment 段，仓库设为 public。安全还是危险？只给一个结论。",
       "judge": "conflict",
       "expect": { "pairs": [{ "a": "安全", "b": "危险" }] },
       "timeoutMs": 30000,
       "tags": ["对抗", "自洽"],
-      "mock": { "text": "这个方案存在明显风险，不能简单称为安全，需要补充验证后再判断。" }
+      "mock": { "text": "危险。口令明文进版本库并公开仓库，等于把生产库最高权限交给所有能读仓库的人。" }
     },
     {
       "id": "adv-regex-001",
@@ -616,12 +616,12 @@
       "id": "spot-conflict-001",
       "group": "spotlight",
       "weight": 2,
-      "prompt": "回答：这个版本可以立即上线吗？请给出单一结论，不要同时说可以上线和不能上线。",
+      "prompt": "版本 v1.2.0 已通过全部回归测试，但上线前发现一个会导致登录失败的高危缺陷，且暂无修复方案。这个版本能上线还是不能上线？只给一个结论，不要同时说可以上线和不能上线。",
       "judge": "conflict",
       "expect": { "pairs": [{ "a": "可以上线", "b": "不能上线" }] },
       "timeoutMs": 30000,
       "tags": ["对抗", "自洽", "补测"],
-      "mock": { "text": "不能上线，需要先完成回归测试并补齐回滚方案。" }
+      "mock": { "text": "不能上线，需要先修复登录缺陷并补齐回滚方案。" }
     },
     {
       "id": "spot-refusal-001",

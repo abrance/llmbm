@@ -18,17 +18,26 @@ export function resolveWebRoot(candidate: string | undefined): string | undefine
 }
 
 /**
+ * 接口前缀不参与 SPA 回落。
+ * /__mock 只在 dev / preview 存在；生产构建里它必须和 /api 一样返回 JSON 404，
+ * 不能被回落成 200 text/html（否则前端会把接口错误当成正常页面）。
+ */
+function isInterfacePath(url: string): boolean {
+  const pathname = url.split('?')[0] ?? '';
+  return pathname === '/api' || pathname.startsWith('/api/') || pathname === '/__mock' || pathname.startsWith('/__mock/');
+}
+
+/**
  * 注册静态托管 + SPA 回落。
- * 回落只对 GET/HEAD 且非 /api/ 路径生效，避免把接口 404 变成 HTML。
+ * 回落只对 GET/HEAD 且非接口路径生效，避免把接口 404 变成 HTML。
  */
 export async function registerStatic(app: FastifyInstance, webRoot: string): Promise<void> {
   const indexFile = join(webRoot, 'index.html');
   await app.register(fastifyStatic, { root: webRoot, wildcard: false, index: ['index.html'] });
 
   app.setNotFoundHandler((request, reply) => {
-    const isApi = request.url.startsWith('/api/');
     const isRead = request.method === 'GET' || request.method === 'HEAD';
-    if (isApi || !isRead || !existsSync(indexFile)) {
+    if (isInterfacePath(request.url) || !isRead || !existsSync(indexFile)) {
       return reply.code(404).send({ error: '未找到该接口或资源' });
     }
     return reply.type('text/html; charset=utf-8').sendFile('index.html');
