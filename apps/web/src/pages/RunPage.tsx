@@ -20,6 +20,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { PageHeader, SectionCard } from '../components/Layout.js';
 import { GROUP_META, GROUP_ORDER, QUESTION_BANK } from '../data/bank.js';
+import { MOCK_AVAILABLE } from '../lib/build.js';
 import { etaMs, failedIds, formatDuration, progressPercent } from '../lib/metrics.js';
 import { isMockBase } from '../lib/transport.js';
 import { useRun } from '../state/runContext.js';
@@ -104,6 +105,11 @@ export function RunPage() {
       message.warning('先保存接入配置');
       return;
     }
+    if (isMock && !MOCK_AVAILABLE) {
+      message.warning('生产环境不包含内置 Mock，请先填真实中转站配置');
+      navigate('/connect');
+      return;
+    }
     if (planned === 0) {
       message.warning('当前筛选没有可跑的题');
       return;
@@ -120,7 +126,14 @@ export function RunPage() {
   if (!endpoint) {
     return (
       <Space direction="vertical" size={20} style={{ width: '100%' }}>
-        <PageHeader title="跑测" subtitle="还没有接入配置。先填 Base URL、Key 和模型，或直接用内置 Mock 体验。" />
+        <PageHeader
+          title="跑测"
+          subtitle={
+            MOCK_AVAILABLE
+              ? '还没有接入配置。先填 Base URL、Key 和模型，或直接用内置 Mock 体验。'
+              : '还没有接入配置。先填 Base URL、Key 和模型，保存后即可跑测。'
+          }
+        />
         <Card variant="borderless" className="panel">
           <Empty description="没有可用的接入配置">
             <Button type="primary" onClick={() => navigate('/connect')}>
@@ -150,6 +163,20 @@ export function RunPage() {
           </Space>
         }
       />
+
+      {isMock && !MOCK_AVAILABLE ? (
+        <Alert
+          type="warning"
+          showIcon
+          message="当前配置是内置 Mock，但生产环境不包含 Mock 端点"
+          description="请回接入配置填真实中转站的 Base URL、Key 和模型后再跑测。"
+          action={
+            <Button size="small" onClick={() => navigate('/connect')}>
+              重新配置
+            </Button>
+          }
+        />
+      ) : null}
 
       {error ? (
         <Alert
@@ -249,7 +276,7 @@ export function RunPage() {
                     <Switch checked={includeUnavailable} onChange={setIncludeUnavailable} size="small" />
                     <span>包含未上线判定</span>
                   </div>
-                  {isMock ? (
+                  {isMock && MOCK_AVAILABLE ? (
                     <div className="switch-row">
                       <Switch checked={injectFlaky} onChange={setInjectFlaky} size="small" />
                       <span>故障注入（演示探针）</span>
@@ -315,7 +342,13 @@ export function RunPage() {
               </div>
               <div className="plan-row">
                 <span>端点</span>
-                <strong>{isMock ? '内置 Mock（本地）' : endpoint.baseUrl.replace(/^https?:\/\//, '').split('/')[0]}</strong>
+                <strong>
+                  {isMock
+                    ? MOCK_AVAILABLE
+                      ? '内置 Mock（本地）'
+                      : '内置 Mock（生产不可用）'
+                    : endpoint.baseUrl.replace(/^https?:\/\//, '').split('/')[0]}
+                </strong>
               </div>
               <Button type="primary" block size="large" onClick={onStart} disabled={busy || planned === 0} style={{ marginTop: 16 }}>
                 {busy ? '跑测中…' : '开始跑测'}

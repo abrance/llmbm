@@ -17,7 +17,7 @@ import type {
   EndpointConfig,
   ModelResponse,
   PreparedRequest,
-  Protocol,
+  ToolSpec,
 } from '@llmbm/core';
 import type { BankQuestion } from '../data/bank.js';
 
@@ -53,22 +53,9 @@ function chatMessagesOf(question: BankQuestion): ChatMessage[] {
 }
 
 /**
- * 题库里的 tools 是 OpenAI 声明形状。core 的 ChatRequest 目前还没有 tools 字段，
- * 所以这里只在 openai 协议下原样透传；anthropic / gemini 的工具声明形状不同，
- * 不在这里猜，等 core 契约扩展（已报给 mike）。mock 端点按题号返回预置工具调用，
- * 不依赖请求里的 tools。
+ * 题库里的 tools 是协议无关的 ToolSpec（OpenAI 声明形状）。
+ * 各协议如何映射由 core adapter 负责，web 侧不再按协议改写请求体（D1）。
  */
-function attachTools(prepared: PreparedRequest, protocol: Protocol, tools: unknown[] | undefined): PreparedRequest {
-  if (!tools || tools.length === 0 || protocol !== 'openai') return prepared;
-  try {
-    const body = JSON.parse(prepared.body) as Record<string, unknown>;
-    body['tools'] = tools;
-    return { ...prepared, body: JSON.stringify(body) };
-  } catch {
-    return prepared;
-  }
-}
-
 export interface PreparedChat {
   adapter: Adapter;
   request: PreparedRequest;
@@ -78,7 +65,7 @@ export interface PreparedChat {
 export function prepareChatRequest(
   ep: EndpointConfig,
   messages: ChatMessage[],
-  options: { tools?: unknown[]; maxTokens?: number } = {},
+  options: { tools?: ToolSpec[]; maxTokens?: number } = {},
 ): PreparedChat {
   const adapter = resolveAdapter(ep);
   const request = adapter.buildChatRequest(
@@ -87,10 +74,11 @@ export function prepareChatRequest(
       messages,
       temperature: 0,
       ...(options.maxTokens !== undefined ? { maxTokens: options.maxTokens } : {}),
+      ...(options.tools && options.tools.length > 0 ? { tools: options.tools } : {}),
     },
     ep,
   );
-  return { adapter, request: attachTools(request, adapter.protocol, options.tools) };
+  return { adapter, request };
 }
 
 function sseData(line: string): string | undefined {
@@ -164,7 +152,7 @@ interface ExecuteOptions {
   signal: AbortSignal;
   timeoutMs: number;
   headers?: Record<string, string>;
-  tools?: unknown[];
+  tools?: ToolSpec[];
   maxTokens?: number;
 }
 

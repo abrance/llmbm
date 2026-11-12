@@ -54,6 +54,21 @@ test('static: 前端路由回落 index.html，接口不回落', async () => {
     assert.equal(api404.statusCode, 404);
     assert.match(api404.headers['content-type'] as string, /application\/json/);
 
+    // /api 本身也不回落
+    const apiRoot = await app.inject({ method: 'GET', url: '/api' });
+    assert.equal(apiRoot.statusCode, 404);
+    assert.match(apiRoot.headers['content-type'] as string, /application\/json/);
+
+    // /__mock 同 /api：生产构建没有 Mock 端点，GET 也不能被回落成 HTML
+    const mockGet = await app.inject({ method: 'GET', url: '/__mock/v1/models' });
+    assert.equal(mockGet.statusCode, 404);
+    assert.match(mockGet.headers['content-type'] as string, /application\/json/);
+    assert.equal(mockGet.json().error, '未找到该接口或资源');
+
+    const mockPost = await app.inject({ method: 'POST', url: '/__mock/v1/chat/completions' });
+    assert.equal(mockPost.statusCode, 404);
+    assert.match(mockPost.headers['content-type'] as string, /application\/json/);
+
     // 真实接口不受回落影响
     const health = await app.inject({ method: 'GET', url: '/api/health' });
     assert.equal(health.statusCode, 200);

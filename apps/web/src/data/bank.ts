@@ -2,7 +2,7 @@
  * 题库入口（wof 维护）。JSON 是唯一事实源：packages/core/src/data/questions.json。
  * 新增题目只改 JSON；本文件只做类型收窄与分组元数据，不含判定逻辑（D2）。
  */
-import type { JudgeKind, Question } from '@llmbm/core';
+import type { JudgeKind, Question, ToolSpec } from '@llmbm/core';
 import raw from '../../../../packages/core/src/data/questions.json' with { type: 'json' };
 
 export interface MockReply {
@@ -14,7 +14,7 @@ export interface MockReply {
 export interface BankQuestion extends Question {
   judge: JudgeKind;
   mock?: MockReply;
-  tools?: unknown[];
+  tools?: ToolSpec[];
 }
 
 interface BankFile {
