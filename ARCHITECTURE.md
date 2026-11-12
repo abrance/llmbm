@@ -1,6 +1,6 @@
 # llmbm 架构契约（v0.1，mike 维护）
 
-对标 apitest.work，规格见 `docs/spec`（sor 的 spec v0.1）。本文件是**唯一的接口与所有权约定**，
+对标 apitest.work，规格见 `docs/llmbm-spec-2026-11-12.md`（sor 的 spec v0.1，仓库内副本 `docs/SPEC.md`）。本文件是**唯一的接口与所有权约定**，
 改它要走 MR 并在群里报一句。与 spec 冲突时以 spec 为准，spec 没写的以本文件为准。
 
 ## 1. 目录与所有权（一个目录只有一个写入者）
@@ -101,3 +101,14 @@ npm run verify        # typecheck + core 单测
 - 合并顺序：`core 骨架（mike，已合）` → `judges` → `adapters` → `web` → `api`。
   后合的人先 `git rebase main`，冲突只改自己目录。
 - 合入判据：`npm run verify` 绿 + mike 读完 diff + 无跨目录改动。
+
+## 7. 合入标准（mike 把关，2026-11-12 定）
+
+**硬门槛**：`npm run verify`（typecheck + lint + test）全绿，且 `test` 跑的是**干净编译**的 dist
+（`packages/core` 的 `build` 先 `rm -rf dist`：`tsc` 不清旧产物，跨分支残留会让测试数虚高）。
+前端改动的 PR 另需 `npm run build -w @llmbm/web` 通过。
+
+**合并顺序**：骨架 → judges → adapters → web → api。前一项没合，后一项不合，避免契约两头改。
+
+**单个 PR 的边界**：一个 PR 只做一件事；跨目录改动要单独说明理由。判分缺陷（scoring）与规则实现（rules）
+不同 PR，前者 mike 改，后者 pit 改。

@@ -132,7 +132,7 @@ export interface EndpointConfig {
 
 export interface PreparedRequest {
   url: string;
-  method: 'POST';
+  method: 'POST' | 'GET';
   headers: Record<string, string>;
   body: string;
 }

@@ -72,3 +72,30 @@ test('detectWrapped：fenced code 与合法 JSON 视为规整', () => {
   assert.equal(detectWrapped('{not json}'), false);
   assert.equal(detectWrapped('随便一段话'), false);
 });
+
+test('硬检查失败 + 包装规整 → 仍是 0，不被保底抬回 85', () => {
+  const s = scoreQuestion(q(), [ok('json'), bad('pure', true)], { wrapped: true });
+  assert.equal(s.score, 0);
+  assert.equal(s.status, 'fail');
+  assert.ok(!s.flags.includes('wrapped'));
+});
+
+test('core 题未全对 + 包装规整 → 仍是 0', () => {
+  const s = scoreQuestion(q({ core: true }), [ok('a'), bad('b')], { wrapped: true });
+  assert.equal(s.score, 0);
+  assert.ok(!s.flags.includes('wrapped'));
+});
+
+test('恰好 85 分的正常结果不会被误标 wrapped', () => {
+  const checks = [...Array.from({ length: 17 }, (_, i) => ok(`a${i}`)), bad('b1'), bad('b2'), bad('b3')];
+  const s = scoreQuestion(q(), checks, { wrapped: false });
+  assert.equal(s.score, 85);
+  assert.ok(!s.flags.includes('wrapped'));
+});
+
+test('零项通过 + 包装规整 → 0（没交付内容，不享受保底）', () => {
+  const s = scoreQuestion(q({ judge: 'format-json' }), [bad('format.no-fence'), bad('format.parse')], { wrapped: true });
+  assert.equal(s.score, 0);
+  assert.equal(s.status, 'fail');
+  assert.ok(!s.flags.includes('wrapped'));
+});
