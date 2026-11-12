@@ -1,9 +1,14 @@
 name: build
 
+# v0.1 只在本机验收，镜像构建不随 main 推送自动跑（spec §7）。
+# 等 v0.1 验收通过、上 COS 云环境时再恢复 push 触发。
 on:
-  push:
-    branches: [main]
   workflow_dispatch:
+    inputs:
+      push:
+        description: '推送到 GHCR（默认只验证构建）'
+        type: boolean
+        default: false
 
 jobs:
   images:
@@ -22,22 +27,23 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Build and push api
+      # 手动触发默认不推送，只验证镜像能构建；需要推时勾 push 输入
+      - name: Build api
         uses: docker/build-push-action@v6
         with:
           context: .
           file: deploy/Dockerfile.api
-          push: true
+          push: ${{ inputs.push }}
           tags: |
             ghcr.io/${{ github.repository }}/api:latest
             ghcr.io/${{ github.repository }}/api:${{ github.sha }}
 
-      - name: Build and push web
+      - name: Build web
         uses: docker/build-push-action@v6
         with:
           context: .
           file: deploy/Dockerfile.web
-          push: true
+          push: ${{ inputs.push }}
           tags: |
             ghcr.io/${{ github.repository }}/web:latest
             ghcr.io/${{ github.repository }}/web:${{ github.sha }}
