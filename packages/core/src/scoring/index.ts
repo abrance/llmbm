@@ -1,6 +1,7 @@
 /**
  * 单题打分（spec §2.3），纯函数、无 IO。
  * 规则顺序即优先级：传输失败 → 硬检查/core → 参数封顶 → 包装保底 → 阈值分级。
+ * 包装保底的前提是「内容交付了但有瑕」，至少要有一项检查通过；0 项通过是没交付，不保底。
  */
 import type { JudgeCheck, Question, QuestionScore, QuestionStatus, ScoreFlag } from '../types.js';
 
@@ -57,6 +58,8 @@ export function scoreQuestion(question: Question, checks: readonly JudgeCheck[],
   const { passed, total } = weightedTally(checks);
   const allPass = total > 0 && passed === total;
   const hardFailed = checks.some((c) => c.hard && !c.pass);
+  // 归零后不许再被保底抬回：硬失败 / core 未全对是负结论，不是「有瑕」。
+  const zeroed = hardFailed || (question.core === true && !allPass);
   const notes: string[] = [];
 
   let score: number;
@@ -71,7 +74,7 @@ export function scoreQuestion(question: Question, checks: readonly JudgeCheck[],
   } else {
     score = (passed / total) * 100;
 
-    if (hardFailed || (question.core && !allPass)) {
+    if (zeroed) {
       flags.add('core-failed');
       score = 0;
       notes.push(question.core ? '核心题未全对 → 0' : '硬检查失败 → 0');
@@ -84,7 +87,7 @@ export function scoreQuestion(question: Question, checks: readonly JudgeCheck[],
     }
 
     const wrapped = opts.wrapped ?? false;
-    if (!paramsWrong && !allPass && score < WRAPPED_FLOOR && wrapped) {
+    if (!zeroed && !paramsWrong && passed > 0 && !allPass && score < WRAPPED_FLOOR && wrapped) {
       score = WRAPPED_FLOOR;
       flags.add('wrapped');
       notes.push(`答案包装规整但有瑕 → 保底 ${WRAPPED_FLOOR}`);
@@ -92,7 +95,7 @@ export function scoreQuestion(question: Question, checks: readonly JudgeCheck[],
   }
 
   score = Math.max(0, Math.min(100, score));
-  if (flags.has('wrapped') || (score === WRAPPED_FLOOR && !allPass)) flags.add('wrapped');
+
 
   return {
     questionId: question.id,
