@@ -156,6 +156,13 @@ export function ResultPage() {
         />
       ) : null}
 
+      <Alert
+        type="info"
+        showIcon
+        message="区间只反映采样一致性"
+        description="半宽来自同一模型多次采样的离散度，不覆盖题库覆盖度与判定口径差异；temperature=0 下采样可能完全一致，± 0.00 不等于高置信。"
+      />
+
       {report.total.halfWidth > 30 ? (
         <Alert
           type="info"
