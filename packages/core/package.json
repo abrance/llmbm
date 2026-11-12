@@ -15,6 +15,10 @@
       "types": "./dist/judge/index.d.ts",
       "default": "./dist/judge/index.js"
     },
+    "./fingerprint": {
+      "types": "./dist/fingerprint/index.d.ts",
+      "default": "./dist/fingerprint/index.js"
+    },
     "./adapters": {
       "types": "./dist/adapters/index.d.ts",
       "default": "./dist/adapters/index.js"
@@ -24,7 +28,7 @@
     "dist"
   ],
   "scripts": {
-    "build": "tsc -p tsconfig.json",
+    "build": "rm -rf dist && tsc -p tsconfig.json",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "tsc -p tsconfig.json && node --test \"dist/**/*.test.js\""
   }
