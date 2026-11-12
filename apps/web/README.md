@@ -58,13 +58,13 @@ npm run dev -w @llmbm/web          # 5173（被占用会自动换端口）
 ```bash
 npm run typecheck
 npm run lint
-npm test -w @llmbm/web             # 题库结构 + 进度/探针纯函数 + checkpoint
+npm test -w @llmbm/web             # 题库结构 + 进度/探针纯函数 + checkpoint + 传输层
 npm run build -w @llmbm/web        # tsc + vite build（含 worker chunk）
 ```
 
 ## 5. 边界与未核
 
-- **协议适配**：本版跑测传输只实现 OpenAI 兼容的非流式 chat；`anthropic` / `gemini` 的请求体与 SSE 归一化属 `packages/core/src/adapters/**`（pit），未合入前选择这两项会失败。
+- **协议适配**：请求构造（URL / 请求体 / 鉴权头）与响应解析（非流式 JSON / SSE / usage / tool_calls）全部走 `packages/core/src/adapters/**`，`apps/web/src/lib/transport.ts` 只保留 fetch、超时、真取消、429/5xx 退避。三种协议都能跑；工具题受 core `ChatRequest` 尚无 `tools` 字段限制，目前只有 openai 协议透传 tools。
 - **判定实现**：core 当前只注册了 `exact`。默认跑测会自动过滤掉未实现判定的题；打开「包含未上线判定」可核对题库，未实现判定会以 `registry：未知 judge: xxx` 出现在探针里。
 - **已知 core 计分缺陷（待 mike 确认）**：硬检查失败（如 `registry`）先置 0 后，仍可能被「包装规整保底 85」抬回 85，导致未上线判定显示为「待复核 85」。位置 `packages/core/src/scoring/index.ts` 的 `wrapped` 分支；本目录未越界修改。
 - **F9 家族指纹**：core 尚未提供指纹结果字段，结果页没有展示该卡片；等 core 契约补上再接。

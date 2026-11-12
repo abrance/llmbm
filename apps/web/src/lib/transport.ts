@@ -1,8 +1,24 @@
 /**
- * 浏览器侧最小 HTTP 传输层（只负责发请求与解析 OpenAI 兼容的 chat 响应）。
- * 协议归一化（anthropic / gemini / SSE）属于 core adapters（D1），不在这里重写。
+ * 浏览器侧最小 HTTP 传输层。
+ *
+ * 只负责「传输语义」：fetch、超时、AbortController 真取消、429/5xx 退避重试、
+ * mock 端点分流、域名截断。请求形状（URL / 请求体 / 鉴权头）与响应解析（JSON /
+ * SSE 帧 / usage / tool_calls）全部来自 @llmbm/core 的 adapters（D1），这里不再
+ * 写第二份协议映射。
  */
-import type { EndpointConfig, ModelResponse, ToolCall, Usage } from '@llmbm/core';
+import {
+  createStreamAccumulator,
+  isRetryable,
+  resolveAdapter,
+} from '@llmbm/core/adapters';
+import type {
+  Adapter,
+  ChatMessage,
+  EndpointConfig,
+  ModelResponse,
+  PreparedRequest,
+  Protocol,
+} from '@llmbm/core';
 import type { BankQuestion } from '../data/bank.js';
 
 export interface ChatOptions {
@@ -11,21 +27,12 @@ export interface ChatOptions {
   injectFlaky: boolean;
 }
 
-const RETRYABLE = new Set([408, 409, 429, 500, 502, 503, 504]);
 const MAX_RETRIES = 2;
+/** 证据链里最多保留的 SSE 帧数，避免长回答的原始证据撑爆 localStorage / 导出。 */
+const MAX_EVIDENCE_FRAMES = 500;
 
 export function isMockBase(baseUrl: string): boolean {
   return baseUrl.startsWith('/__mock') || baseUrl.startsWith('mock://');
-}
-
-/** 去尾部斜杠；已带 /chat/completions 的原样使用。 */
-export function chatUrl(baseUrl: string): string {
-  const base = baseUrl.replace(/\/+$/, '');
-  return base.endsWith('/chat/completions') ? base : `${base}/chat/completions`;
-}
-
-export function modelsUrl(baseUrl: string): string {
-  return `${baseUrl.replace(/\/+$/, '')}/models`;
 }
 
 /** 社区展示只到域名；mock 端点固定 mock.local，避免把协议/路径带出去。 */
@@ -38,90 +45,92 @@ export function domainOf(baseUrl: string): string {
   }
 }
 
-function messagesOf(question: BankQuestion): { role: 'system' | 'user'; content: string }[] {
-  const messages: { role: 'system' | 'user'; content: string }[] = [];
+function chatMessagesOf(question: BankQuestion): ChatMessage[] {
+  const messages: ChatMessage[] = [];
   if (question.system) messages.push({ role: 'system', content: question.system });
   messages.push({ role: 'user', content: question.prompt });
   return messages;
 }
 
-function buildHeaders(ep: EndpointConfig, question: BankQuestion, opts: ChatOptions): Record<string, string> {
-  const headers: Record<string, string> = {
-    'content-type': 'application/json',
-    accept: 'application/json',
-    'x-llmbm-question-id': question.id,
-    'x-llmbm-sample': String(opts.sampleIndex),
-    ...(opts.injectFlaky ? { 'x-llmbm-inject': 'flaky' } : {}),
-    ...(ep.headers ?? {}),
-  };
-  if (ep.apiKey.trim()) headers.authorization = `Bearer ${ep.apiKey.trim()}`;
-  return headers;
-}
-
-function usageOf(value: unknown): Usage | undefined {
-  if (!value || typeof value !== 'object') return undefined;
-  const v = value as Record<string, unknown>;
-  const num = (x: unknown) => (typeof x === 'number' && Number.isFinite(x) ? x : undefined);
-  const prompt = num(v['prompt_tokens']) ?? num(v['input_tokens']);
-  const completion = num(v['completion_tokens']) ?? num(v['output_tokens']);
-  const total = num(v['total_tokens']) ?? (prompt !== undefined && completion !== undefined ? prompt + completion : undefined);
-  if (prompt === undefined && completion === undefined && total === undefined) return undefined;
-  return { ...(prompt !== undefined ? { promptTokens: prompt } : {}), ...(completion !== undefined ? { completionTokens: completion } : {}), ...(total !== undefined ? { totalTokens: total } : {}) };
-}
-
-function textOfContent(content: unknown): string {
-  if (typeof content === 'string') return content;
-  if (Array.isArray(content)) {
-    return content
-      .map((part) => (part && typeof part === 'object' && typeof (part as { text?: unknown }).text === 'string' ? (part as { text: string }).text : ''))
-      .join('');
+/**
+ * 题库里的 tools 是 OpenAI 声明形状。core 的 ChatRequest 目前还没有 tools 字段，
+ * 所以这里只在 openai 协议下原样透传；anthropic / gemini 的工具声明形状不同，
+ * 不在这里猜，等 core 契约扩展（已报给 mike）。mock 端点按题号返回预置工具调用，
+ * 不依赖请求里的 tools。
+ */
+function attachTools(prepared: PreparedRequest, protocol: Protocol, tools: unknown[] | undefined): PreparedRequest {
+  if (!tools || tools.length === 0 || protocol !== 'openai') return prepared;
+  try {
+    const body = JSON.parse(prepared.body) as Record<string, unknown>;
+    body['tools'] = tools;
+    return { ...prepared, body: JSON.stringify(body) };
+  } catch {
+    return prepared;
   }
-  return '';
 }
 
-export interface ParsedChat {
-  text: string;
-  reasoning?: string;
-  toolCalls?: ToolCall[];
-  finishReason?: string;
-  usage?: Usage;
+export interface PreparedChat {
+  adapter: Adapter;
+  request: PreparedRequest;
 }
 
-/** 解析 OpenAI 兼容的非流式响应；不认识的字段忽略，不抛错。 */
-export function parseChatJson(json: unknown): ParsedChat {
-  const root = (json ?? {}) as Record<string, unknown>;
-  const choices = Array.isArray(root['choices']) ? (root['choices'] as unknown[]) : [];
-  const first = (choices[0] ?? {}) as Record<string, unknown>;
-  const message = (first['message'] ?? first['delta'] ?? {}) as Record<string, unknown>;
-  const rawCalls = Array.isArray(message['tool_calls']) ? (message['tool_calls'] as unknown[]) : [];
-  const toolCalls: ToolCall[] = rawCalls.map((item, index) => {
-    const call = (item ?? {}) as Record<string, unknown>;
-    const fn = (call['function'] ?? {}) as Record<string, unknown>;
-    const name = typeof fn['name'] === 'string' ? fn['name'] : '';
-    const rawArguments = typeof fn['arguments'] === 'string' ? fn['arguments'] : undefined;
-    let args: unknown;
-    if (rawArguments !== undefined) {
+/** 构造请求：协议判定、URL、鉴权头、请求体全部交给 core adapter。 */
+export function prepareChatRequest(
+  ep: EndpointConfig,
+  messages: ChatMessage[],
+  options: { tools?: unknown[]; maxTokens?: number } = {},
+): PreparedChat {
+  const adapter = resolveAdapter(ep);
+  const request = adapter.buildChatRequest(
+    {
+      model: ep.model,
+      messages,
+      temperature: 0,
+      ...(options.maxTokens !== undefined ? { maxTokens: options.maxTokens } : {}),
+    },
+    ep,
+  );
+  return { adapter, request: attachTools(request, adapter.protocol, options.tools) };
+}
+
+function sseData(line: string): string | undefined {
+  if (!line.startsWith('data:')) return undefined;
+  return line.slice(5).trim();
+}
+
+function looksLikeSse(text: string): boolean {
+  const head = text.trimStart();
+  return head.startsWith('data:') || head.startsWith('event:') || text.includes('\ndata:');
+}
+
+/**
+ * 消费 SSE 文本：逐行交给 adapter.parseSseLine，跨帧拼接由 core 的聚合层负责。
+ * HTTP 200 但没有 finishReason 视为「流断」，显式记 error —— 可信度检测不能把
+ * 半截回答当成正常完成。
+ */
+function parseEventStream(text: string, adapter: Adapter, httpStatus: number): ModelResponse {
+  const acc = createStreamAccumulator();
+  const frames: unknown[] = [];
+
+  for (const rawLine of text.split('\n')) {
+    const line = rawLine.replace(/\r$/, '');
+    const payload = sseData(line);
+    if (payload && payload !== '[DONE]' && frames.length < MAX_EVIDENCE_FRAMES) {
       try {
-        args = JSON.parse(rawArguments);
+        frames.push(JSON.parse(payload) as unknown);
       } catch {
-        args = undefined;
+        // 半截帧 / 心跳：adapter 会忽略，证据里也不收
       }
     }
-    return {
-      id: typeof call['id'] === 'string' ? call['id'] : `call_${index}`,
-      name,
-      ...(args !== undefined ? { args } : {}),
-      ...(rawArguments !== undefined ? { rawArguments } : {}),
-    };
-  });
-  const reasoning = message['reasoning_content'] ?? message['reasoning'];
-  return {
-    text: textOfContent(message['content']),
-    ...(typeof reasoning === 'string' ? { reasoning } : {}),
-    ...(toolCalls.length > 0 ? { toolCalls } : {}),
-    ...(typeof first['finish_reason'] === 'string' ? { finishReason: first['finish_reason'] } : {}),
-    ...(usageOf(root['usage']) !== undefined ? { usage: usageOf(root['usage']) } : {}),
-  };
+    acc.push(adapter.parseSseLine(line));
+  }
+
+  const result = acc.result(httpStatus);
+  const raw = { transport: 'sse', frames };
+  if (!result.error && result.finishReason === undefined) {
+    return { ...result, raw, error: '流在完成标记前结束（HTTP 200，未收到 finishReason）' };
+  }
+  return { ...result, raw };
 }
 
 function sleep(ms: number, signal: AbortSignal): Promise<void> {
@@ -151,23 +160,25 @@ function retryDelay(res: Response, attempt: number): number {
   return 300 * 2 ** attempt;
 }
 
-/** 发一次 chat 请求；超时/网络错误以 ModelResponse.error 返回，取消则以 AbortError 抛出。 */
-export async function chatOnce(
+interface ExecuteOptions {
+  signal: AbortSignal;
+  timeoutMs: number;
+  headers?: Record<string, string>;
+  tools?: unknown[];
+  maxTokens?: number;
+}
+
+async function execute(
   ep: EndpointConfig,
-  question: BankQuestion,
-  opts: ChatOptions,
-  fetchImpl: typeof fetch = fetch,
+  messages: ChatMessage[],
+  opts: ExecuteOptions,
+  fetchImpl: typeof fetch,
 ): Promise<ModelResponse> {
-  const timeoutMs = question.timeoutMs ?? 30000;
-  const body = {
-    model: ep.model,
-    messages: messagesOf(question),
-    temperature: 0,
-    stream: false,
-    ...(question.tools ? { tools: question.tools } : {}),
-  };
-  const url = chatUrl(ep.baseUrl);
-  const headers = buildHeaders(ep, question, opts);
+  const { adapter, request } = prepareChatRequest(ep, messages, {
+    ...(opts.tools !== undefined ? { tools: opts.tools } : {}),
+    ...(opts.maxTokens !== undefined ? { maxTokens: opts.maxTokens } : {}),
+  });
+  const headers: Record<string, string> = { ...request.headers, ...(opts.headers ?? {}) };
 
   for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
     const controller = new AbortController();
@@ -178,21 +189,21 @@ export async function chatOnce(
     const timer = setTimeout(() => {
       timedOut = true;
       controller.abort();
-    }, timeoutMs);
+    }, opts.timeoutMs);
 
     const started = performance.now();
     try {
-      const res = await fetchImpl(url, {
-        method: 'POST',
+      const res = await fetchImpl(request.url, {
+        method: request.method,
         headers,
-        body: JSON.stringify(body),
+        body: request.body,
         signal: controller.signal,
       });
       const latencyMs = Math.round(performance.now() - started);
 
       if (!res.ok) {
         const rawText = await res.text().catch(() => '');
-        if (RETRYABLE.has(res.status) && attempt < MAX_RETRIES) {
+        if (isRetryable(res.status) && attempt < MAX_RETRIES) {
           await sleep(retryDelay(res, attempt), opts.signal);
           continue;
         }
@@ -206,6 +217,16 @@ export async function chatOnce(
       }
 
       const rawText = await res.text();
+      const contentType = (res.headers.get('content-type') ?? '').toLowerCase();
+      // 有的中转站会忽略 stream:true 直接回 JSON；两种都按实际 body 判定。
+      if (contentType.includes('text/event-stream') || looksLikeSse(rawText)) {
+        return {
+          ...parseEventStream(rawText, adapter, res.status),
+          latencyMs,
+          httpStatus: res.status,
+        };
+      }
+
       let json: unknown;
       try {
         json = JSON.parse(rawText);
@@ -218,9 +239,8 @@ export async function chatOnce(
           raw: rawText,
         };
       }
-      const parsed = parseChatJson(json);
       return {
-        ...parsed,
+        ...adapter.parseChatResponse(json, res.status),
         raw: json,
         latencyMs,
         httpStatus: res.status,
@@ -229,7 +249,7 @@ export async function chatOnce(
       if (opts.signal.aborted) throw new DOMException('aborted', 'AbortError');
       const latencyMs = Math.round(performance.now() - started);
       if (timedOut) {
-        return { text: '', error: `请求超时（${timeoutMs}ms）`, latencyMs };
+        return { text: '', error: `请求超时（${opts.timeoutMs}ms）`, latencyMs };
       }
       const message = err instanceof Error ? err.message : String(err);
       if (attempt < MAX_RETRIES) {
@@ -246,47 +266,84 @@ export async function chatOnce(
   return { text: '', error: '重试次数耗尽' };
 }
 
-/** 拉模型列表：mock 直接读内置端点，真实地址走同源 /api/models 代理。 */
-export async function fetchModels(ep: EndpointConfig, fetchImpl: typeof fetch = fetch): Promise<string[]> {
-  const mock = isMockBase(ep.baseUrl);
-  const url = mock ? modelsUrl(ep.baseUrl) : `/api/models?baseUrl=${encodeURIComponent(ep.baseUrl)}`;
-  const res = await fetchImpl(url, {
-    headers: ep.apiKey.trim() ? { authorization: `Bearer ${ep.apiKey.trim()}` } : {},
-  });
-  if (!res.ok) throw new Error(`HTTP ${res.status}：${(await res.text()).slice(0, 200)}`);
-  const json = (await res.json()) as { data?: { id?: unknown }[] };
-  return (json.data ?? []).map((m) => m.id).filter((id): id is string => typeof id === 'string');
+/** 发一次 chat 请求；超时/网络错误以 ModelResponse.error 返回，取消则以 AbortError 抛出。 */
+export async function chatOnce(
+  ep: EndpointConfig,
+  question: BankQuestion,
+  opts: ChatOptions,
+  fetchImpl: typeof fetch = fetch,
+): Promise<ModelResponse> {
+  return execute(
+    ep,
+    chatMessagesOf(question),
+    {
+      signal: opts.signal,
+      timeoutMs: question.timeoutMs ?? 30000,
+      headers: {
+        'x-llmbm-question-id': question.id,
+        'x-llmbm-sample': String(opts.sampleIndex),
+        ...(opts.injectFlaky ? { 'x-llmbm-inject': 'flaky' } : {}),
+      },
+      ...(question.tools !== undefined ? { tools: question.tools } : {}),
+    },
+    fetchImpl,
+  );
 }
 
-/** 连通性测试：发一个最短的 chat 请求，返回耗时；失败抛错。 */
-export async function pingEndpoint(ep: EndpointConfig, fetchImpl: typeof fetch = fetch): Promise<{ latencyMs: number; sample: string }> {
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), 15000);
-  const started = performance.now();
+async function requestModels(request: PreparedRequest, adapter: Adapter, fetchImpl: typeof fetch): Promise<string[]> {
+  const res = await fetchImpl(request.url, { method: request.method, headers: request.headers });
+  const text = await res.text();
+  if (!res.ok) throw new Error(`HTTP ${res.status}：${text.slice(0, 200)}`);
+  let json: unknown;
   try {
-    const res = await fetchImpl(chatUrl(ep.baseUrl), {
-      method: 'POST',
-      headers: {
-        'content-type': 'application/json',
-        accept: 'application/json',
-        ...(ep.apiKey.trim() ? { authorization: `Bearer ${ep.apiKey.trim()}` } : {}),
-        ...(ep.headers ?? {}),
-      },
-      body: JSON.stringify({
-        model: ep.model,
-        messages: [{ role: 'user', content: '只回复 ok' }],
-        temperature: 0,
-        max_tokens: 8,
-        stream: false,
-      }),
-      signal: controller.signal,
+    json = JSON.parse(text) as unknown;
+  } catch {
+    throw new Error(`响应不是合法 JSON：${text.slice(0, 120)}`);
+  }
+  return adapter.parseModelsResponse(json);
+}
+
+/**
+ * 拉模型列表：mock 与 anthropic/gemini 直接用 core 的 buildModelsRequest；
+ * OpenAI 兼容仍走同源 /api/models 代理（避开浏览器 CORS，代理只转发 Authorization）。
+ */
+export async function fetchModels(ep: EndpointConfig, fetchImpl: typeof fetch = fetch): Promise<string[]> {
+  const adapter = resolveAdapter(ep);
+  const request = adapter.buildModelsRequest?.(ep);
+  if (!request) throw new Error(`协议 ${adapter.protocol} 不支持拉取模型列表`);
+
+  if (!isMockBase(ep.baseUrl) && adapter.protocol === 'openai') {
+    const res = await fetchImpl(`/api/models?baseUrl=${encodeURIComponent(ep.baseUrl)}`, {
+      headers: ep.apiKey.trim() ? { authorization: `Bearer ${ep.apiKey.trim()}` } : {},
     });
     const text = await res.text();
     if (!res.ok) throw new Error(`HTTP ${res.status}：${text.slice(0, 200)}`);
-    const parsed = parseChatJson(JSON.parse(text) as unknown);
-    if (!parsed.text && !parsed.toolCalls) throw new Error('响应没有正文');
-    return { latencyMs: Math.round(performance.now() - started), sample: parsed.text.slice(0, 80) };
-  } finally {
-    clearTimeout(timer);
+    let json: unknown;
+    try {
+      json = JSON.parse(text) as unknown;
+    } catch {
+      throw new Error(`响应不是合法 JSON：${text.slice(0, 120)}`);
+    }
+    return adapter.parseModelsResponse(json);
   }
+
+  return requestModels(request, adapter, fetchImpl);
+}
+
+/** 连通性测试：发一个最短的 chat 请求，返回耗时；失败抛错。 */
+export async function pingEndpoint(
+  ep: EndpointConfig,
+  fetchImpl: typeof fetch = fetch,
+): Promise<{ latencyMs: number; sample: string }> {
+  const response = await execute(
+    ep,
+    [{ role: 'user', content: '只回复 ok' }],
+    { signal: new AbortController().signal, timeoutMs: 15000, maxTokens: 8 },
+    fetchImpl,
+  );
+  if (response.error) throw new Error(response.error);
+  if (!response.text && !(response.toolCalls && response.toolCalls.length > 0)) {
+    throw new Error('响应没有正文');
+  }
+  return { latencyMs: response.latencyMs ?? 0, sample: response.text.slice(0, 80) };
 }
