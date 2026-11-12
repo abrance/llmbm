@@ -62,6 +62,10 @@ export function ResultPage() {
 
   const record = run;
   const report = record.report;
+  // 旧断点里没有 D5 的传输字段；缺失时按「无传输失败」展示。
+  const transport = report.transport ?? { errors: 0, samples: 0, rate: 0 };
+  const sampleCounts = report.samples ?? { valid: 0, total: 0 };
+  const transportText = `${transport.errors}/${transport.samples} 次（${(transport.rate * 100).toFixed(1)}%）`;
   const probes = failedIds(record.results);
   const formatText = report.format.total === 0 ? '—' : `${(report.format.rate * 100).toFixed(1)}%`;
 
@@ -160,7 +164,7 @@ export function ResultPage() {
         type="info"
         showIcon
         message="区间只反映采样一致性"
-        description="半宽来自同一模型多次采样的离散度，不覆盖题库覆盖度与判定口径差异；temperature=0 下采样可能完全一致，± 0.00 不等于高置信。"
+        description={`半宽来自同一模型多次采样的离散度，不覆盖题库覆盖度与判定口径差异；temperature=0 下采样可能完全一致，± 0.00 不等于高置信。传输失败 ${transportText}，已从能力分聚合剔除，有效采样 ${sampleCounts.valid}/${sampleCounts.total}。`}
       />
 
       {report.total.halfWidth > 30 ? (
@@ -210,6 +214,13 @@ export function ResultPage() {
                 <small>{report.stability.completed}/{report.stability.expected} 题完成</small>
               </div>
               <div>
+                <span>传输错误率</span>
+                <strong>{(transport.rate * 100).toFixed(1)}%</strong>
+                <small>
+                  {transport.errors}/{transport.samples} 次不计入能力分
+                </small>
+              </div>
+              <div>
                 <span>通过 / 待复核 / 失败</span>
                 <strong>
                   {report.counts.pass} / {report.counts.pending} / {report.counts.fail}
@@ -239,7 +250,7 @@ export function ResultPage() {
             <p>按题均值加权；同一维度内题数更多不会自动放大权重。</p>
           </div>
           <Typography.Text type="secondary">
-            {report.total.mean.toFixed(2)} ± {report.total.halfWidth.toFixed(2)}（{report.total.n} 题）
+            {report.total.mean.toFixed(2)} ± {report.total.halfWidth.toFixed(2)}（{report.total.n} 题，有效采样 {sampleCounts.valid}/{sampleCounts.total}）
           </Typography.Text>
         </div>
         <Space direction="vertical" size={14} style={{ width: '100%' }}>
@@ -272,7 +283,7 @@ export function ResultPage() {
         <Col xs={24} md={8}>
           <Card variant="borderless" className="panel stat-card">
             <Statistic title="请求采样" value={report.total.values.length || record.results.reduce((a, r) => a + r.samples.length, 0)} suffix="次" />
-            <Typography.Text type="secondary">{record.results.length} 道题</Typography.Text>
+            <Typography.Text type="secondary">{record.results.length} 道题 · 有效采样 {sampleCounts.valid}/{sampleCounts.total}</Typography.Text>
           </Card>
         </Col>
         <Col xs={24} md={8}>

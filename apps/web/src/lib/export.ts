@@ -56,12 +56,18 @@ function sampleBlock(run: RunRecord, limit = 600): string[] {
 
 export function exportMarkdown(run: RunRecord): string {
   const report = run.report;
+  // 旧断点里没有 D5 的传输字段；缺失时按「无传输失败」导出。
+  const transport = report.transport ?? { errors: 0, samples: 0, rate: 0 };
+  const sampleCounts = report.samples ?? { valid: 0, total: 0 };
   const lines: string[] = [];
   lines.push('# llmbm 可信度报告');
   lines.push('');
   lines.push(`- 端点：${run.endpoint.domain}`);
   lines.push(`- 模型：${run.endpoint.model}（${run.endpoint.protocol}）`);
   lines.push(`- 能力分：${report.total.mean.toFixed(2)} ± ${report.total.halfWidth.toFixed(2)}（${report.total.n} 题，每题 ${run.samples} 次采样）`);
+  lines.push(
+    `- 传输错误：${(transport.rate * 100).toFixed(1)}%（${transport.errors}/${transport.samples} 次请求没收到答案，已从能力分聚合剔除；有效采样 ${sampleCounts.valid}/${sampleCounts.total}）`,
+  );
   lines.push(`- 格式命中率：${(report.format.rate * 100).toFixed(1)}%（${report.format.hit}/${report.format.total}）`);
   lines.push(`- 稳定性：${(report.stability.rate * 100).toFixed(1)}%（${report.stability.completed}/${report.stability.expected}）`);
   lines.push(`- 通过 / 待复核 / 失败：${report.counts.pass} / ${report.counts.pending} / ${report.counts.fail}`);

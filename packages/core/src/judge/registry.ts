@@ -17,7 +17,7 @@ export interface JudgeRegistry {
  * 规则版本（D6）：任何 judge 判定行为变化都要 bump，结果里回写，
  * 保证「同一份题库 + 同一版本规则」可复现同一分数。
  */
-export const JUDGE_RULE_VERSION = 'judge-rules@0.1.2';
+export const JUDGE_RULE_VERSION = 'judge-rules@0.1.3';
 
 export function createRegistry(): JudgeRegistry {
   const rules = new Map<JudgeKind, JudgeFn>();

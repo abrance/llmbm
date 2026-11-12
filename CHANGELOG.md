@@ -9,6 +9,10 @@
   只在**肯定形式**出现的子句里才算命中（命中处前 40 字内有否定/澄清标记且其后无转折词 → 视为否定式提及）。
   `refusal.no-danger` 与 `judge/conflict` 共用 `rules/shared.ts` 同一份子句/否定判定，不再各写一套。
   判定口径变更，`JUDGE_RULE_VERSION` → `judge-rules@0.1.2`
+- `scoring`/`aggregate`：传输失败不再当能力失败扣分（D5）。超时/断流的采样不进入题均值、维度分与能力分，
+  改为单独统计 `transport.rate`（结果页与导出都有），同时给出有效采样数 `samples.valid/total`；
+  该题在有效采样不足时状态是 `pending_review` 而不是 `fail`。题级状态判定收拢到 `questionStatus` 一份实现。
+  打分/聚合语义变更（非 judge 规则），`JUDGE_RULE_VERSION` → `judge-rules@0.1.3`
 - `judge/conflict`：共现不再等于同时断言。引号内提及、否定（`不能`/`无法`）、要求澄清
   （`无法判断`/`信息不足`/`请补充`）、选言结构（`安全或危险`）都不判冲突；同一句里两边都以
   肯定形式出现才失败。判定口径变更，`JUDGE_RULE_VERSION` → `judge-rules@0.1.1`
