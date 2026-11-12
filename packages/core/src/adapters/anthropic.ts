@@ -59,8 +59,7 @@ export const anthropicAdapter: Adapter = {
   buildModelsRequest(cfg: EndpointConfig): PreparedRequest {
     return {
       url: joinUrl(cfg.baseUrl, '/v1', '/models'),
-      // shortcut: 同上，契约放开 method 后删掉 cast
-      method: 'GET' as PreparedRequest['method'],
+      method: 'GET',
       headers: {
         'x-api-key': cfg.apiKey,
         'anthropic-version': '2023-06-01',

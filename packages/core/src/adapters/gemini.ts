@@ -95,8 +95,7 @@ export const geminiAdapter: Adapter = {
   buildModelsRequest(cfg: EndpointConfig): PreparedRequest {
     return {
       url: modelsBase(cfg.baseUrl),
-      // shortcut: 同上，契约放开 method 后删掉 cast
-      method: 'GET' as PreparedRequest['method'],
+      method: 'GET',
       headers: {
         'x-goog-api-key': cfg.apiKey,
         accept: 'application/json',
