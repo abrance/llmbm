@@ -72,7 +72,12 @@ export async function pipeForward(reply: FastifyReply, result: ForwardResult): P
   // send(undefined)，把已 pipe 的响应覆盖成 content-length: 0 的空 body。
   reply.hijack();
   const raw = reply.raw;
-  raw.writeHead(result.status, result.headers);
+  // writeHead 绕过 reply.send，插件挂在 reply 上的头（如 @fastify/cors 的
+  // access-control-allow-origin）必须显式并进来，否则跨源调用方会被浏览器拦掉。
+  // 上游透传头放后面，保证 PASS_THROUGH 白名单内的值以白名单为准。
+  const replyHeaders: Record<string, string | number | string[]> = {};
+  for (const [k, v] of Object.entries(reply.getHeaders())) if (v !== undefined) replyHeaders[k] = v;
+  raw.writeHead(result.status, { ...replyHeaders, ...result.headers });
   // Web Stream → Node 流，避免整包读进内存
   const source = Readable.fromWeb(result.body as Parameters<typeof Readable.fromWeb>[0]);
   source.on('error', (err: Error) => {

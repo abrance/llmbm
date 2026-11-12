@@ -96,9 +96,10 @@ test('api: 代理把 SSE 流原样透传给客户端（不是 200 + 空 body）'
     await app.listen({ port: 0, host: '127.0.0.1' });
     const { port } = app.server.address() as AddressInfo;
 
+    const origin = 'http://localhost:5173';
     const res = await fetch(`http://127.0.0.1:${port}/api/proxy`, {
       method: 'POST',
-      headers: { 'content-type': 'application/json' },
+      headers: { 'content-type': 'application/json', origin },
       body: JSON.stringify({
         url: FAKE_UPSTREAM,
         headers: { authorization: 'Bearer test-key' },
@@ -108,6 +109,8 @@ test('api: 代理把 SSE 流原样透传给客户端（不是 200 + 空 body）'
 
     assert.equal(res.status, 200, '状态码应原样透传');
     assert.equal(res.headers.get('content-type'), 'text/event-stream');
+    // 回归点：hijack 绕过 reply.send，CORS 头（挂在 reply 上）曾被整个丢掉
+    assert.equal(res.headers.get('access-control-allow-origin'), origin, 'hijack 分支必须带上 CORS 头');
     // 回归点：修复前这里恒为 '0'，body 为空
     assert.equal(res.headers.get('content-length'), null, '流式响应不应带 content-length');
 
