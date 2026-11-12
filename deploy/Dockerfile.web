@@ -1,0 +1,17 @@
+# llmbm web 镜像：静态站点（nginx）
+FROM node:24-alpine AS build
+WORKDIR /repo
+COPY package.json package-lock.json ./
+COPY tsconfig.base.json ./
+COPY packages/core/package.json packages/core/
+COPY apps/web/package.json apps/web/
+RUN npm ci --workspace @llmbm/core --workspace @llmbm/web --include-workspace-root
+
+COPY packages/core packages/core
+COPY apps/web apps/web
+RUN npm run build -w @llmbm/core && npm run build -w @llmbm/web
+
+FROM nginx:1.27-alpine AS runtime
+COPY deploy/nginx.conf /etc/nginx/conf.d/default.conf
+COPY --from=build /repo/apps/web/dist /usr/share/nginx/html
+EXPOSE 80

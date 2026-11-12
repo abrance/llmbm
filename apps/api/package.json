@@ -1,0 +1,21 @@
+{
+  "name": "@llmbm/api",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "llmbm 后端：模型列表 / SSE 代理透传 / 社区结果（Fastify + node:sqlite）",
+  "main": "./dist/server.js",
+  "scripts": {
+    "dev": "tsc -p tsconfig.json && node --watch dist/server.js",
+    "build": "tsc -p tsconfig.json",
+    "start": "node dist/server.js",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "tsc -p tsconfig.json && node --test \"dist/**/*.test.js\""
+  },
+  "dependencies": {
+    "@fastify/cors": "^11.4.1",
+    "@fastify/static": "^10.1.10",
+    "@llmbm/core": "*",
+    "fastify": "^5.12.8"
+  }
+}

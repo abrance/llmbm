@@ -11,13 +11,21 @@
     "apps/*"
   ],
   "scripts": {
-    "build": "npm run build -w @llmbm/core",
-    "test": "npm run test -w @llmbm/core",
-    "typecheck": "npm run typecheck -w @llmbm/core",
-    "verify": "npm run typecheck && npm test"
+    "dev": "npm run dev --workspaces --if-present",
+    "build": "npm run build --workspaces --if-present",
+    "build:core": "npm run build -w @llmbm/core",
+    "test": "npm run build:core && npm run test --workspaces --if-present",
+    "typecheck": "npm run build:core && npm run typecheck --workspaces --if-present",
+    "lint": "eslint .",
+    "format": "prettier --write .",
+    "verify": "npm run typecheck && npm run lint && npm test"
   },
   "devDependencies": {
+    "@eslint/js": "^9.39.5",
+    "@types/node": "^24.10.1",
+    "eslint": "^9.39.5",
+    "prettier": "^3.6.2",
     "typescript": "5.9.3",
-    "@types/node": "^24.10.1"
+    "typescript-eslint": "^8.72.2"
   }
 }
