@@ -1,6 +1,6 @@
 {
-  "version": "qb-2026-11-12.1",
-  "description": "llmbm v0.1 题库：6 个分组、48 题，覆盖 spec §2.1 的 19 类 judge。mock 字段只供 apps/web 内置演示端点使用，不参与判分。",
+  "version": "qb-2026-11-12.2",
+  "description": "llmbm v0.1 题库：6 个分组、49 题，覆盖 spec §2.1 的 19 类 judge（每类至少 2 题）。mock 字段只供 apps/web 内置演示端点使用，不参与判分。",
   "questions": [
     {
       "id": "basic-exact-001",
@@ -247,6 +247,17 @@
       "timeoutMs": 30000,
       "tags": ["算术", "推理"],
       "mock": { "text": "120" }
+    },
+    {
+      "id": "ability-fraction-002",
+      "group": "ability",
+      "weight": 1,
+      "prompt": "把 7/8 化成小数，只输出小数，不要百分号、分数或解释。",
+      "judge": "fraction",
+      "expect": { "numerator": 7, "denominator": 8 },
+      "timeoutMs": 30000,
+      "tags": ["算术", "分数"],
+      "mock": { "text": "0.875" }
     },
 
     {

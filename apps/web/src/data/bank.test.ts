@@ -5,7 +5,7 @@ import { BANK_VERSION, GROUP_ORDER, QUESTION_BANK } from './bank.ts';
 
 test('题库文件可加载，版本与题目数符合本次交付', () => {
   assert.match(BANK_VERSION, /^qb-/);
-  assert.equal(QUESTION_BANK.length, 48);
+  assert.equal(QUESTION_BANK.length, 49);
 });
 
 test('spec §1 F3 六个分组都有题', () => {
@@ -19,6 +19,13 @@ test('19 类 judge 全部有题覆盖', () => {
   const used = new Set(QUESTION_BANK.map((q) => q.judge));
   const missing = JUDGE_KINDS.filter((kind) => !used.has(kind));
   assert.deepEqual(missing, [], `缺少判定类型的题：${missing.join(', ')}`);
+});
+
+test('每类 judge 至少 2 题（正例 + 难点各一）', () => {
+  for (const kind of JUDGE_KINDS) {
+    const count = QUESTION_BANK.filter((q) => q.judge === kind).length;
+    assert.ok(count >= 2, `${kind} 只有 ${count} 题`);
+  }
 });
 
 test('题目 id 唯一、必填字段齐全、分数权重为正', () => {
