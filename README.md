@@ -25,12 +25,12 @@ npm run dev -w @llmbm/web     # http://127.0.0.1:5173（已代理 /api）
 
 ```bash
 npm run build
-docker compose up -d --build   # web → http://127.0.0.1:8080，api 只在内网
+docker compose up -d --build   # 单镜像（api 托管前端）→ http://127.0.0.1:8080
 ```
 
 > v0.1 阶段只在本机做功能验收（spec §7）：deploy/ 就是本机 compose，够用即停。
 > 不搭 CDN / 多环境 / 域名证书，也不随 main 推送自动构建镜像（`.github/workflows/build.yml` 仅手动触发，默认只验证构建、不推 GHCR）。
-> 云环境部署等 v0.1 验收通过后由 mike 协调运维执行。
+> 云环境部署等 v0.1 验收通过后由 mike 协调运维执行，形态是 cops 单元 `apps/llmbm/` 部署到 cloud3（k3s）。
 
 ## 目录
 
@@ -42,10 +42,10 @@ packages/core/         判分内核，零运行时依赖，前后端共用（唯
   src/sampling/        确定性抽样（seed → 同一套题）
   src/data/            题库 JSON（wof）
 apps/web/              React 18 + Vite + antd，纯前端跑测（Key 不出浏览器，D4）
-apps/api/              Fastify：/api/models、/api/proxy（SSE 透传）、/api/community/*
+apps/api/              Fastify：/api/models、/api/proxy（SSE 透传）、/api/community/*，生产态托管 apps/web/dist
   src/plugins/guard    D5 代理护栏：目标校验 / 并发上限 / 超时 / body 上限
   src/repo/            唯一碰 SQL 的一层（node:sqlite，换 PG 只改这里）
-deploy/                Dockerfile.api / Dockerfile.web / nginx.conf
+deploy/                Dockerfile（单镜像：api 进程内托管前端产物，同源免 CORS）
 docs/SPEC.md           产品规格与架构基线（sor，v0.1）
 ARCHITECTURE.md        接口契约与目录所有权（mike）
 ```

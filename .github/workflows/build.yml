@@ -1,7 +1,7 @@
 name: build
 
 # v0.1 只在本机验收，镜像构建不随 main 推送自动跑（spec §7）。
-# 等 v0.1 验收通过、上 COS 云环境时再恢复 push 触发。
+# 等 v0.1 验收通过、上 cops 云环境（cloud3 k3s）时再恢复 push 触发。
 on:
   workflow_dispatch:
     inputs:
@@ -28,22 +28,13 @@ jobs:
           password: ${{ secrets.GITHUB_TOKEN }}
 
       # 手动触发默认不推送，只验证镜像能构建；需要推时勾 push 输入
-      - name: Build api
+      # 单镜像：api 进程内托管前端产物（spec §7）
+      - name: Build image
         uses: docker/build-push-action@v6
         with:
           context: .
-          file: deploy/Dockerfile.api
+          file: deploy/Dockerfile
           push: ${{ inputs.push }}
           tags: |
-            ghcr.io/${{ github.repository }}/api:latest
-            ghcr.io/${{ github.repository }}/api:${{ github.sha }}
-
-      - name: Build web
-        uses: docker/build-push-action@v6
-        with:
-          context: .
-          file: deploy/Dockerfile.web
-          push: ${{ inputs.push }}
-          tags: |
-            ghcr.io/${{ github.repository }}/web:latest
-            ghcr.io/${{ github.repository }}/web:${{ github.sha }}
+            ghcr.io/${{ github.repository }}:latest
+            ghcr.io/${{ github.repository }}:${{ github.sha }}
