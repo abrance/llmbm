@@ -72,6 +72,7 @@ test('api: 社区提交后可按域名列出，且不回传 payload', async () =
       method: 'POST',
       url: '/api/community/submit',
       payload: {
+        consent: true,
         domain: 'api.example.com',
         model: 'gpt-4o',
         protocol: 'openai',
@@ -109,7 +110,7 @@ test('api: 社区提交缺字段 / 分数越界被拒', async () => {
     const missing = await app.inject({
       method: 'POST',
       url: '/api/community/submit',
-      payload: { domain: 'x.com' },
+      payload: { consent: true, domain: 'x.com' },
     });
     assert.equal(missing.statusCode, 400);
     assert.match(missing.json().error, /缺少字段/);
@@ -118,6 +119,7 @@ test('api: 社区提交缺字段 / 分数越界被拒', async () => {
       method: 'POST',
       url: '/api/community/submit',
       payload: {
+        consent: true,
         domain: 'x.com',
         model: 'm',
         protocol: 'openai',
@@ -130,6 +132,33 @@ test('api: 社区提交缺字段 / 分数越界被拒', async () => {
       },
     });
     assert.equal(bad.statusCode, 400);
+  } finally {
+    await close();
+  }
+});
+
+test('api: 社区提交未显式同意参与（默认不勾选）被拒', async () => {
+  const { app, close } = await buildApp();
+  try {
+    const res = await app.inject({
+      method: 'POST',
+      url: '/api/community/submit',
+      payload: {
+        domain: 'x.com',
+        model: 'm',
+        protocol: 'openai',
+        capabilityScore: 90,
+        capabilityHalfWidth: 1,
+        formatScore: 90,
+        stability: 1,
+        questionBankVersion: 'qb',
+        judgeRuleVersion: '1',
+      },
+    });
+    assert.equal(res.statusCode, 400);
+    assert.match(res.json().error, /consent/);
+    const list = await app.inject({ method: 'GET', url: '/api/community/results?domain=x.com' });
+    assert.equal(list.json().total, 0);
   } finally {
     await close();
   }

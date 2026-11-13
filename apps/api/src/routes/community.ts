@@ -6,6 +6,8 @@ import type { FastifyInstance } from 'fastify';
 import type { Repo } from '../repo/results.js';
 
 interface SubmitBody {
+  /** 参与社区榜单必须显式勾选（前端默认不勾选），缺失即拒，避免任何客户端悄悄公开分数。 */
+  consent?: boolean;
   domain?: string;
   model?: string;
   protocol?: string;
@@ -31,6 +33,9 @@ function isNum(v: unknown): v is number {
 export function registerCommunityRoutes(app: FastifyInstance, repo: Repo): void {
   app.post<{ Body: SubmitBody }>('/api/community/submit', async (request, reply) => {
     const b = request.body ?? {};
+    if (b.consent !== true) {
+      return reply.code(400).send({ error: '需要显式勾选参与社区榜单（consent=true）' });
+    }
     const missing = (['domain', 'model', 'protocol', 'questionBankVersion', 'judgeRuleVersion'] as const).filter(
       (k) => typeof b[k] !== 'string' || !(b[k] as string).trim(),
     );

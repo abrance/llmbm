@@ -3,6 +3,7 @@ import {
   App,
   Button,
   Card,
+  Checkbox,
   Col,
   Descriptions,
   Divider,
@@ -30,6 +31,8 @@ export function ResultPage() {
   const navigate = useNavigate();
   const { run, phase, progress, retryFailed } = useRun();
   const [submitOpen, setSubmitOpen] = useState(false);
+  // 参与社区榜单默认不勾选：只有用户主动勾选才会公开提交。
+  const [optIn, setOptIn] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [submittedId, setSubmittedId] = useState<string>();
   const [submitError, setSubmitError] = useState<string>();
@@ -83,6 +86,7 @@ export function ResultPage() {
     setSubmitError(undefined);
     try {
       const body = {
+        consent: optIn,
         domain: record.endpoint.domain,
         model: record.endpoint.model,
         protocol: record.endpoint.protocol,
@@ -128,7 +132,16 @@ export function ResultPage() {
           <Space wrap>
             <Button onClick={() => onExport('md')}>导出 Markdown</Button>
             <Button onClick={() => onExport('json')}>导出 JSON</Button>
-            <Button type="primary" onClick={() => setSubmitOpen(true)}>
+            <Checkbox
+              checked={optIn}
+              onChange={(e) => {
+                setOptIn(e.target.checked);
+                if (!e.target.checked) setSubmitOpen(false);
+              }}
+            >
+              参与社区榜单
+            </Checkbox>
+            <Button type="primary" onClick={() => setSubmitOpen(true)} disabled={!optIn}>
               提交社区
             </Button>
             {probes.length > 0 ? (
@@ -329,7 +342,7 @@ export function ResultPage() {
           showIcon
           style={{ marginBottom: 16 }}
           message="提交前请确认公开范围"
-          description="社区榜单是公开数据。提交后任何人都能按域名和模型查到这条记录。"
+          description="社区榜单是公开数据。提交后任何人都能按域名和模型查到这条记录。参与是可选的：勾选框默认不勾选，取消勾选则分数只留在本地、不会上传。"
         />
         <Descriptions bordered size="small" column={1}>
           <Descriptions.Item label="会公开">域名、模型、协议、能力分与区间、格式命中率、稳定性、题库/规则版本、维度分、问题探针题号</Descriptions.Item>
