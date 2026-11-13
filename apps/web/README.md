@@ -84,5 +84,5 @@ npm run build -w @llmbm/web        # tsc + vite build（含 worker chunk）
 - **协议适配**：请求构造（URL / 请求体 / 鉴权头）与响应解析（非流式 JSON / SSE / usage / tool_calls）全部走 `packages/core/src/adapters/**`，`apps/web/src/lib/transport.ts` 只保留 fetch、超时、真取消、429/5xx 退避。三种协议的工具声明都由 core 映射（`ChatRequest.tools`：openai 原样透传、anthropic `input_schema`、gemini `functionDeclarations`），web 侧不再按协议改写请求体。
 - **判定实现**：core 已注册全部 20 类 judge（`missingJudges()` 返回空数组），题库 49 题都跑在真实判定上；「包含未上线判定」开关只作为核对题库的兜底。
 - **计分**：硬检查失败 / core 题未全对先置 0，`wrapped` 保底只在「有内容、非硬失败、非参数错」时生效，0 分不会再被抬回 85（`packages/core/src/scoring/index.ts`，dc67f52）。
-- **F9 家族指纹**：core 已提供 `fingerprintOf()` / `degradationOf()` 纯函数（弱信号，明确标注不构成定论）；`RunRecord` 尚未带该字段，结果页未展示，等 core 契约补上再接。
+- **F9 家族指纹 / F10 退化检测**：core 提供 `runSignalsOf()`（一次跑测的指纹 + 退化汇总），特征与阈值全在 `packages/core/src/fingerprint/index.ts`；web 只做「按题分组 + 剔除传输失败采样」后调用，不再自己算一份。两者都是**弱信号**：`weak:true` + `caveat` 必与数值同屏，`confidence` 不是降智概率。**基线尚未持久化**，所以 `verdict` 恒为 `insufficient-data`，只能看本次形态、不能判定「换了模型」。
 - **Docker 镜像**：`deploy/Dockerfile` 单镜像已实构建并在本机 8080 验收（`docker compose up -d --build`）；CI 的 `build.yml` 为手动触发，默认只验证构建、不推 GHCR。
