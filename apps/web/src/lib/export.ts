@@ -4,6 +4,7 @@
 import { formatStat } from '@llmbm/core';
 import { groupLabel } from '../data/bank.js';
 import { probesOf } from './metrics.js';
+import { signalMarkdownBlock } from './signals.js';
 import type { RunRecord } from './types.js';
 
 function pad(n: number): string {
@@ -92,6 +93,11 @@ export function exportMarkdown(run: RunRecord): string {
   lines.push('');
 
   const probes = probesOf(run.results);
+  lines.push('## 家族指纹（弱信号）');
+  lines.push('');
+  lines.push(...signalMarkdownBlock(run));
+  lines.push('');
+
   lines.push('## 问题探针');
   lines.push('');
   if (probes.length === 0) {

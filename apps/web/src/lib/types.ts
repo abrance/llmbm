@@ -3,11 +3,14 @@
  * 只描述「一次跑测」在浏览器里的形状：题目结果、证据链、断点、worker 消息。
  */
 import type {
+  DegradationSummary,
   JudgeCheck,
+  ModelFingerprint,
   ModelResponse,
   OutcomeReport,
   QuestionScore,
   QuestionStatus,
+  RunSignals,
 } from '@llmbm/core';
 import type { BankQuestion } from '../data/bank.js';
 
@@ -74,6 +77,10 @@ export interface RunRecord {
   notices?: string[];
   /** 补测时间（只重跑失败题时更新）。 */
   retriedAt?: string;
+  /** F9 家族指纹（弱信号）。旧 IndexedDB 记录没有这两个字段，展示层要按「本次未采集」处理。 */
+  fingerprint?: ModelFingerprint;
+  /** F10 退化汇总（弱信号）。 */
+  degradation?: DegradationSummary;
 }
 
 export interface RunCheckpoint {
@@ -136,6 +143,8 @@ export type WorkerEvent =
       abortReason?: string;
       /** 被容忍的失败说明（请求形状被拒、瞬时失败）。 */
       notices?: string[];
+      /** F9/F10 弱信号，只由 core 的 runSignalsOf 计算。 */
+      signals: RunSignals;
     }
   | { type: 'fatal'; error: string };
 

@@ -21,6 +21,7 @@ import { EvidenceTable } from '../components/EvidenceTable.js';
 import { PageHeader } from '../components/Layout.js';
 import { ProbePanel } from '../components/ProbePanel.js';
 import { IntervalBar, ScoreDial, scoreColor } from '../components/Score.js';
+import { SignalsPanel } from '../components/Signals.js';
 import { groupLabel } from '../data/bank.js';
 import { download, exportFilename, exportJson, exportMarkdown } from '../lib/export.js';
 import { consistencyOf, failedIds } from '../lib/metrics.js';
@@ -342,6 +343,7 @@ export function ResultPage() {
       </Row>
 
       <ProbePanel results={record.results} onRetry={(ids) => retryFailed(ids)} busy={busy} />
+      <SignalsPanel run={record} />
       <EvidenceTable run={record} onRetry={(ids) => retryFailed(ids)} busy={busy} />
 
       <Modal
