@@ -35,6 +35,31 @@ export function repeatRatio(text: string): number {
   return Math.max(0, Math.min(1, 1 - unique / lines.length));
 }
 
+/**
+ * 采样一致率：同一题多次采样的正文是否字节相同。
+ * temperature 默认 0，正常端点应完全一致；不一致说明端点在随机重放、路由到不同模型，
+ * 或者偷偷改了温度。只统计有效采样 ≥2 的题，避免 N=1 时把它算成 100%。
+ */
+export interface ConsistencyStat {
+  /** 参与统计的题数。 */
+  questions: number;
+  /** 多次采样完全一致的题数。 */
+  identical: number;
+  rate: number;
+}
+
+export function consistencyOf(results: readonly QuestionResult[]): ConsistencyStat {
+  let questions = 0;
+  let identical = 0;
+  for (const result of results) {
+    const texts = result.samples.filter((s) => s.response.error === undefined).map((s) => s.response.text.trim());
+    if (texts.length < 2) continue;
+    questions += 1;
+    if (new Set(texts).size === 1) identical += 1;
+  }
+  return { questions, identical, rate: questions === 0 ? 0 : identical / questions };
+}
+
 export function scoreRange(mean: number, halfWidth: number): { low: number; high: number } {
   return {
     low: Math.max(0, Math.min(100, mean - halfWidth)),

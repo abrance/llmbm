@@ -15,9 +15,9 @@
 |---|---|---|
 | F1 | 接入配置 | Base URL / API Key / 模型 ID；OpenAI 兼容 `/v1/models` 拉模型列表 |
 | F2 | 协议适配 | openai / anthropic / gemini 三家请求体 + SSE 帧格式归一化 |
-| F3 | 题库分组 | 基础、能力、对抗、耐久、进阶 + 精选补测，可单选/多选 |
+| F3 | 题库分组 | 基础、能力、对抗、耐久、进阶、精选补测、上下文与参数，可单选/多选 |
 | F4 | 确定性抽样 | seed → 同 seed 出同一套题，结果可复现 |
-| F5 | 判卷 | ≥19 类 judge（见 §2） |
+| F5 | 判卷 | ≥19 类 judge（见 §2，当前 20 类） |
 | F6 | 单题打分 | pass 项/总项 + 硬规则（见 §2.3） |
 | F7 | 维度聚合 | 各维度得分 + format（格式检查命中率）+ stability（完成/总数） |
 | F8 | 能力分 | 均值聚合，非全 100 满分则封顶 99 |
@@ -32,7 +32,7 @@
 ### 2.1 judge 清单（至少 19 类）
 `exact` `contains` `not-contains` `regex` `set` `json` `json-schema` `number` `fraction`
 `conflict` `ordering` `function-call` `tool-args` `pelican-svg` `long-output` `refusal`
-`format-json` `unit-convert` `cite`
+`format-json` `unit-convert` `cite` `max-tokens`（第 20 类，v0.3 增补：验端点是否真的按 max_tokens 截断）
 
 全部为**本地纯文本/结构规则**，不调用模型打分（LLM-as-judge 只作为可选的人工复核辅助，不进主分）。
 
@@ -57,6 +57,19 @@
 - 参数类题目答对主体但参数错 → 封顶 50
 - 答案包装规整（有 fenced code / 结构完整）但内容有瑕 → 保底 85，且标 `pending_review`
 - ≥90 记为 pass；55~90 记 `pending_review`；<55 fail
+
+### 2.4 用例可读性（v0.3 增补）
+每题必须带 `description`（这题测什么、答错说明什么），并在界面上与「实际发出去的上下文」并排展示：
+
+- 题库页：按分组列出全部题目，展示题号、判定、`description`、上下文摘要（单轮/多轮、system、注入规模、
+  图片、工具、temperature/max_tokens、超时、输入字符数），展开可看真正发出的消息与判定期望。
+- 结果页：证据链每题展开后先给「这题测什么 + 本题上下文」，再给每次采样的正文、判定项、耗时、首字延迟、吞吐。
+- 展示与实际发包必须同源（`prompt.ts` 的 `buildMessages`），不允许界面自己拼一份说明。
+
+### 2.5 输入形态（v0.3 增补）
+题库可以用数据描述多轮（`messages`）、长上下文注入（`contextDoc`，运行时确定性生成，不把 6 万字写进 JSON）、
+图片（`image`）与请求参数（`request`），覆盖中转站最典型的作假面：丢 system、丢历史、
+谎报长上下文、忽略 max_tokens、丢图片、假流式。
 
 ## 3. 与 apitest.work 的差异（这 6 条是硬要求，别照抄）
 

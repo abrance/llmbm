@@ -9,7 +9,7 @@ import type { Plugin } from 'vite';
 
 interface MockQuestion {
   id: string;
-  mock?: { text?: string; toolCalls?: { name: string; arguments: string }[] };
+  mock?: { text?: string; toolCalls?: { name: string; arguments: string }[]; finishReason?: string };
 }
 
 interface BankFile {
@@ -43,7 +43,11 @@ function usageOf(prompt: string, text: string): Record<string, number> {
   return { prompt_tokens: promptTokens, completion_tokens: completionTokens, total_tokens: promptTokens + completionTokens };
 }
 
-function mockAnswer(questionId: string, sample: string, flaky: boolean): { text: string; toolCalls?: { name: string; arguments: string }[] } {
+function mockAnswer(
+  questionId: string,
+  sample: string,
+  flaky: boolean,
+): { text: string; toolCalls?: { name: string; arguments: string }[]; finishReason?: string } {
   const answer = answers.get(questionId);
   if (!answer) {
     return { text: '这是 llmbm 内置 Mock 的占位回答（该题没有演示答案）。' };
@@ -52,7 +56,11 @@ function mockAnswer(questionId: string, sample: string, flaky: boolean): { text:
   if (flaky && questionId === 'basic-exact-002' && sample === '1') {
     return { text: 'Cat' };
   }
-  return { text: answer.text ?? '', ...(answer.toolCalls ? { toolCalls: answer.toolCalls } : {}) };
+  return {
+    text: answer.text ?? '',
+    ...(answer.toolCalls ? { toolCalls: answer.toolCalls } : {}),
+    ...(answer.finishReason ? { finishReason: answer.finishReason } : {}),
+  };
 }
 
 function handler(req: IncomingMessage, res: ServerResponse, next: (err?: unknown) => void): void {
@@ -106,7 +114,13 @@ function handler(req: IncomingMessage, res: ServerResponse, next: (err?: unknown
             object: 'chat.completion',
             created: Math.floor(Date.now() / 1000),
             model: body.model ?? 'mock-llmbm-pro',
-            choices: [{ index: 0, message, finish_reason: answer.toolCalls ? 'tool_calls' : 'stop' }],
+            choices: [
+              {
+                index: 0,
+                message,
+                finish_reason: answer.finishReason ?? (answer.toolCalls ? 'tool_calls' : 'stop'),
+              },
+            ],
             usage: usageOf(prompt, text),
           });
         }, delay);

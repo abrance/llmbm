@@ -6,6 +6,7 @@
  * SSE 帧 / usage / tool_calls）全部来自 @llmbm/core 的 adapters（D1），这里不再
  * 写第二份协议映射。
  */
+import { buildMessages } from '@llmbm/core';
 import {
   createStreamAccumulator,
   isRetryable,
@@ -45,13 +46,6 @@ export function domainOf(baseUrl: string): string {
   }
 }
 
-function chatMessagesOf(question: BankQuestion): ChatMessage[] {
-  const messages: ChatMessage[] = [];
-  if (question.system) messages.push({ role: 'system', content: question.system });
-  messages.push({ role: 'user', content: question.prompt });
-  return messages;
-}
-
 /**
  * 题库里的 tools 是协议无关的 ToolSpec（OpenAI 声明形状）。
  * 各协议如何映射由 core adapter 负责，web 侧不再按协议改写请求体（D1）。
@@ -65,14 +59,14 @@ export interface PreparedChat {
 export function prepareChatRequest(
   ep: EndpointConfig,
   messages: ChatMessage[],
-  options: { tools?: ToolSpec[]; maxTokens?: number } = {},
+  options: { tools?: ToolSpec[]; maxTokens?: number; temperature?: number } = {},
 ): PreparedChat {
   const adapter = resolveAdapter(ep);
   const request = adapter.buildChatRequest(
     {
       model: ep.model,
       messages,
-      temperature: 0,
+      temperature: options.temperature ?? 0,
       ...(options.maxTokens !== undefined ? { maxTokens: options.maxTokens } : {}),
       ...(options.tools && options.tools.length > 0 ? { tools: options.tools } : {}),
     },
@@ -154,6 +148,51 @@ interface ExecuteOptions {
   headers?: Record<string, string>;
   tools?: ToolSpec[];
   maxTokens?: number;
+  temperature?: number;
+}
+
+/**
+ * 增量读响应体，一边攒全文一边记首字延迟（TTFT）与分片数。
+ * `res.text()` 拿不到这两个数，而「排队 3 秒才吐第一个字」「200 毫秒一次性吐完」
+ * 这些中转站限速/假流式的证据只能在这里采到。
+ */
+async function readWithTiming(
+  res: Response,
+  startedAt: number,
+): Promise<{ text: string; ttftMs?: number; chunks?: number }> {
+  const body = res.body;
+  if (!body) return { text: await res.text() };
+  const reader = body.getReader();
+  const decoder = new TextDecoder();
+  const parts: string[] = [];
+  let ttftMs: number | undefined;
+  let chunks = 0;
+  try {
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      chunks += 1;
+      const chunk = decoder.decode(value, { stream: true });
+      parts.push(chunk);
+      // 首帧常常只有 role 或空 delta，出现正文增量才算首字。
+      if (ttftMs === undefined && /"(content|text|text_delta)"\s*:/.test(chunk)) {
+        ttftMs = Math.round(performance.now() - startedAt);
+      }
+    }
+    parts.push(decoder.decode());
+  } finally {
+    reader.releaseLock();
+  }
+  return { text: parts.join(''), ttftMs, chunks };
+}
+
+/** 解码吞吐：completion tokens / 首字之后的耗时；缺 usage 或耗时为 0 时不编数。 */
+export function tokensPerSecond(usage: { completionTokens?: number } | undefined, totalMs: number, ttftMs?: number): number | undefined {
+  const tokens = usage?.completionTokens;
+  if (tokens === undefined || tokens <= 0 || ttftMs === undefined) return undefined;
+  const decodeMs = totalMs - ttftMs;
+  if (decodeMs <= 0) return undefined;
+  return Math.round((tokens / decodeMs) * 1000 * 10) / 10;
 }
 
 async function execute(
@@ -165,6 +204,7 @@ async function execute(
   const { adapter, request } = prepareChatRequest(ep, messages, {
     ...(opts.tools !== undefined ? { tools: opts.tools } : {}),
     ...(opts.maxTokens !== undefined ? { maxTokens: opts.maxTokens } : {}),
+    ...(opts.temperature !== undefined ? { temperature: opts.temperature } : {}),
   });
   const headers: Record<string, string> = { ...request.headers, ...(opts.headers ?? {}) };
 
@@ -204,14 +244,20 @@ async function execute(
         };
       }
 
-      const rawText = await res.text();
+      const { text: rawText, ttftMs, chunks } = await readWithTiming(res, started);
+      const totalMs = Math.round(performance.now() - started);
       const contentType = (res.headers.get('content-type') ?? '').toLowerCase();
       // 有的中转站会忽略 stream:true 直接回 JSON；两种都按实际 body 判定。
       if (contentType.includes('text/event-stream') || looksLikeSse(rawText)) {
+        const parsed = parseEventStream(rawText, adapter, res.status);
+        const tps = tokensPerSecond(parsed.usage, totalMs, ttftMs);
         return {
-          ...parseEventStream(rawText, adapter, res.status),
-          latencyMs,
+          ...parsed,
+          latencyMs: totalMs,
           httpStatus: res.status,
+          ...(ttftMs !== undefined ? { ttftMs } : {}),
+          ...(chunks !== undefined ? { chunks } : {}),
+          ...(tps !== undefined ? { tokensPerSec: tps } : {}),
         };
       }
 
@@ -230,7 +276,7 @@ async function execute(
       return {
         ...adapter.parseChatResponse(json, res.status),
         raw: json,
-        latencyMs,
+        latencyMs: totalMs,
         httpStatus: res.status,
       };
     } catch (err) {
@@ -263,7 +309,7 @@ export async function chatOnce(
 ): Promise<ModelResponse> {
   return execute(
     ep,
-    chatMessagesOf(question),
+    buildMessages(question),
     {
       signal: opts.signal,
       timeoutMs: question.timeoutMs ?? 30000,
@@ -273,6 +319,8 @@ export async function chatOnce(
         ...(opts.injectFlaky ? { 'x-llmbm-inject': 'flaky' } : {}),
       },
       ...(question.tools !== undefined ? { tools: question.tools } : {}),
+      ...(question.request?.maxTokens !== undefined ? { maxTokens: question.request.maxTokens } : {}),
+      ...(question.request?.temperature !== undefined ? { temperature: question.request.temperature } : {}),
     },
     fetchImpl,
   );

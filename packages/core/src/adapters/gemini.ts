@@ -7,6 +7,7 @@ import type {
   Adapter,
   ChatMessage,
   ChatRequest,
+  ContentPart,
   EndpointConfig,
   ModelResponse,
   PreparedRequest,
@@ -59,6 +60,11 @@ function partsFunctionCalls(parts: unknown): Array<{ name: string; args: Record<
   return out;
 }
 
+/** 工具结果只接受文本；分片形式的非文本部分在这里被丢掉（工具结果没有多模态语义）。 */
+function textContent(content: ChatMessage['content']): string {
+  return typeof content === 'string' ? content : content.map((p) => (p.type === 'text' ? p.text : '')).join('');
+}
+
 /** 工具结果回填必须是对象；把文本包成 { result }。 */
 function toolResultPayload(text: string): Record<string, unknown> {
   try {
@@ -70,15 +76,21 @@ function toolResultPayload(text: string): Record<string, unknown> {
   return { result: text };
 }
 
+/** 多模态分片：Gemini 用 parts[].inlineData（camelCase）。 */
+function toGeminiPart(part: ContentPart): Record<string, unknown> {
+  if (part.type === 'text') return { text: part.text };
+  return { inlineData: { mimeType: part.mimeType, data: part.dataBase64 } };
+}
+
 /** Gemini 用 parts 表达工具：model 发 functionCall，回填用 user + functionResponse（按函数名，不用 id）。 */
 function toGeminiContent(m: ChatMessage): Record<string, unknown> {
   if (m.role === 'tool') {
-    const fn: Record<string, unknown> = { name: m.name ?? '', response: toolResultPayload(m.content) };
+    const fn: Record<string, unknown> = { name: m.name ?? '', response: toolResultPayload(textContent(m.content)) };
     return { role: 'user', parts: [{ functionResponse: fn }] };
   }
   if (m.role === 'assistant' && m.tool_calls && m.tool_calls.length) {
     const parts: Array<Record<string, unknown>> = [];
-    if (m.content) parts.push({ text: m.content });
+    if (textContent(m.content)) parts.push({ text: textContent(m.content) });
     for (const call of m.tool_calls) {
       let args: unknown = {};
       try {
@@ -91,14 +103,17 @@ function toGeminiContent(m: ChatMessage): Record<string, unknown> {
     }
     return { role: 'model', parts };
   }
-  return { role: m.role === 'assistant' ? 'model' : 'user', parts: [{ text: m.content }] };
+  const parts = typeof m.content === 'string' ? [{ text: m.content }] : m.content.map(toGeminiPart);
+  return { role: m.role === 'assistant' ? 'model' : 'user', parts };
 }
 
 export const geminiAdapter: Adapter = {
   protocol: 'gemini',
 
   buildChatRequest(req: ChatRequest, cfg: EndpointConfig): PreparedRequest {
-    const systemParts = req.messages.filter((m) => m.role === 'system').map((m) => m.content);
+    const systemParts = req.messages
+      .filter((m) => m.role === 'system')
+      .map((m) => (typeof m.content === 'string' ? m.content : m.content.map((p) => (p.type === 'text' ? p.text : '')).join('')));
     if (req.jsonMode) systemParts.push(JSON_ONLY);
 
     const contents = req.messages.filter((m) => m.role !== 'system').map(toGeminiContent);

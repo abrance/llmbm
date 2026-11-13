@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import type { EndpointConfig, ToolSpec } from '@llmbm/core';
 import type { BankQuestion } from '../data/bank.ts';
-import { chatOnce, fetchModels, prepareChatRequest } from './transport.ts';
+import { chatOnce, fetchModels, prepareChatRequest, tokensPerSecond } from './transport.ts';
 
 const OPENAI: EndpointConfig = {
   baseUrl: 'https://relay.example.com',
@@ -132,6 +132,91 @@ test('chatOnce：SSE 逐帧交给 core 聚合，tool_calls 参数跨帧拼接', 
   assert.deepEqual(out.toolCalls?.[0]?.args, { city: '北京' });
   assert.equal(out.error, undefined);
   assert.deepEqual((out.raw as { transport?: string }).transport, 'sse');
+});
+
+test('chatOnce：流式响应记下首字延迟、分片数与解码吞吐', async () => {
+  const frames = [
+    'data: {"choices":[{"delta":{"role":"assistant"}}]}',
+    'data: {"choices":[{"delta":{"content":"你"}}]}',
+    'data: {"choices":[{"delta":{"content":"好"}}]}',
+    'data: {"choices":[{"delta":{},"finish_reason":"stop"}],"usage":{"completion_tokens":2}}',
+    'data: [DONE]',
+  ].join('\n');
+
+  const out = await chatOnce(OPENAI, question(), options(), fetchOnce(sseResponse(frames)));
+
+  assert.equal(out.text, '你好');
+  assert.equal(out.error, undefined);
+  assert.equal(typeof out.chunks, 'number');
+  assert.ok((out.chunks ?? 0) >= 1, '必须记下分片数');
+  // 只有出现正文增量才算首字；role 帧不算。
+  assert.equal(typeof out.ttftMs, 'number');
+  assert.ok((out.ttftMs ?? -1) >= 0);
+});
+
+test('tokensPerSecond：按首字之后的耗时算，缺 usage 或耗时为 0 时不给数', () => {
+  assert.equal(tokensPerSecond({ completionTokens: 20 }, 1200, 200), 20);
+  assert.equal(tokensPerSecond(undefined, 1200, 200), undefined);
+  assert.equal(tokensPerSecond({ completionTokens: 5 }, 300, 300), undefined);
+  assert.equal(tokensPerSecond({ completionTokens: 0 }, 1200, 200), undefined);
+});
+
+test('chatOnce：非流式 JSON 响应不编造首字延迟与吞吐', async () => {
+  const json = {
+    choices: [{ index: 0, message: { role: 'assistant', content: '你好' }, finish_reason: 'stop' }],
+    usage: { completion_tokens: 2 },
+  };
+  const out = await chatOnce(OPENAI, question(), options(), fetchOnce(jsonResponse(json)));
+  assert.equal(out.ttftMs, undefined);
+  assert.equal(out.tokensPerSec, undefined);
+});
+
+test('chatOnce：多轮与 max_tokens/temperature 原样进请求体', async () => {
+  let body: Record<string, unknown> = {};
+  const fake = (async (_url: string, init: RequestInit) => {
+    body = JSON.parse(String(init.body)) as Record<string, unknown>;
+    return jsonResponse({ choices: [{ index: 0, message: { role: 'assistant', content: 'ok' }, finish_reason: 'stop' }] });
+  }) as unknown as typeof fetch;
+
+  await chatOnce(
+    OPENAI,
+    question({
+      prompt: '暗号是什么',
+      messages: [
+        { role: 'user', content: '记住暗号 ORANGE-9' },
+        { role: 'assistant', content: '已记住' },
+        { role: 'user', content: '暗号是什么' },
+      ],
+      request: { temperature: 0, maxTokens: 16 },
+    } as Partial<BankQuestion>),
+    options(),
+    fake,
+  );
+
+  assert.equal((body['messages'] as unknown[]).length, 3, '多轮题必须把整段历史发出去');
+  assert.equal(body['max_tokens'], 16);
+  assert.equal(body['temperature'], 0);
+});
+
+test('chatOnce：图片题按协议把图片分片塞进最后一条 user', async () => {
+  let body: Record<string, unknown> = {};
+  const fake = (async (_url: string, init: RequestInit) => {
+    body = JSON.parse(String(init.body)) as Record<string, unknown>;
+    return jsonResponse({ choices: [{ index: 0, message: { role: 'assistant', content: '蓝' }, finish_reason: 'stop' }] });
+  }) as unknown as typeof fetch;
+
+  await chatOnce(
+    OPENAI,
+    question({ image: { mimeType: 'image/png', dataBase64: 'QUJD' } } as Partial<BankQuestion>),
+    options(),
+    fake,
+  );
+
+  const messages = body['messages'] as Array<{ content: unknown }>;
+  const content = messages[messages.length - 1]?.content as Array<{ type: string; image_url?: { url: string } }>;
+  assert.ok(Array.isArray(content), '图片题 content 必须是分片数组');
+  assert.equal(content[content.length - 1]?.type, 'image_url');
+  assert.match(content[content.length - 1]?.image_url?.url ?? '', /^data:image\/png;base64,QUJD$/);
 });
 
 test('chatOnce：HTTP 200 但没有 finishReason 视为流断，保留正文并报错', async () => {

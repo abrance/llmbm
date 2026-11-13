@@ -22,7 +22,7 @@ import { ProbePanel } from '../components/ProbePanel.js';
 import { IntervalBar, ScoreDial, scoreColor } from '../components/Score.js';
 import { groupLabel } from '../data/bank.js';
 import { download, exportFilename, exportJson, exportMarkdown } from '../lib/export.js';
-import { failedIds } from '../lib/metrics.js';
+import { consistencyOf, failedIds } from '../lib/metrics.js';
 import { useRun } from '../state/runContext.js';
 
 export function ResultPage() {
@@ -67,6 +67,8 @@ export function ResultPage() {
   const sampleCounts = report.samples ?? { valid: 0, total: 0 };
   const transportText = `${transport.errors}/${transport.samples} 次（${(transport.rate * 100).toFixed(1)}%）`;
   const probes = failedIds(record.results);
+  const consistency = consistencyOf(record.results);
+  const consistencyText = consistency.questions === 0 ? '—' : `${(consistency.rate * 100).toFixed(0)}%`;
   const formatText = report.format.total === 0 ? '—' : `${(report.format.rate * 100).toFixed(1)}%`;
 
   function onExport(kind: 'md' | 'json') {
@@ -212,6 +214,13 @@ export function ResultPage() {
                 <span>稳定性</span>
                 <strong>{(report.stability.rate * 100).toFixed(0)}%</strong>
                 <small>{report.stability.completed}/{report.stability.expected} 题完成</small>
+              </div>
+              <div>
+                <span>采样一致率</span>
+                <strong>{consistencyText}</strong>
+                <small>
+                  {consistency.identical}/{consistency.questions} 题多次采样字节一致
+                </small>
               </div>
               <div>
                 <span>传输错误率</span>

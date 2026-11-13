@@ -1,5 +1,5 @@
 /**
- * judge registry（D1/D2）：19 类判定各自的纯函数实现，按 kind 注册，禁止大 if-else。
+ * judge registry（D1/D2）：每一类判定一个纯函数实现，按 kind 注册，禁止大 if-else。
  * 每个规则文件只做一件事：export 一个 (ctx) => JudgeCheck[]。
  */
 import type { JudgeCheck, JudgeFn, JudgeKind, Question } from '../types.js';

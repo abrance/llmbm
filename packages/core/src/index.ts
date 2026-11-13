@@ -6,5 +6,6 @@ export * from './judge/index.js';
 export * from './scoring/index.js';
 export * from './scoring/interval.js';
 export * from './aggregate.js';
+export * from './prompt.js';
 export * from './sampling/index.js';
 export * from './fingerprint/index.js';

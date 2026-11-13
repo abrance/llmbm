@@ -23,7 +23,7 @@ export function buildRegistry(): JudgeRegistry {
   return registry;
 }
 
-/** 启动自检：返回尚未实现的 kind；空数组表示 19 类齐备。 */
+/** 启动自检：返回尚未实现的 kind；空数组表示 JUDGE_KINDS 全部齐备。 */
 export function missingJudges(registry: JudgeRegistry = defaultRegistry()): JudgeKind[] {
   return registry.missing(JUDGE_KINDS);
 }

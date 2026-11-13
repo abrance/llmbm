@@ -13,6 +13,7 @@ import { judgeFunctionCall } from './function-call.js';
 import { judgeJson } from './json.js';
 import { judgeJsonSchema } from './json-schema.js';
 import { judgeLongOutput } from './long-output.js';
+import { judgeMaxTokens } from './max-tokens.js';
 import { judgeNotContains } from './not-contains.js';
 import { judgeNumber } from './number.js';
 import { judgeOrdering } from './ordering.js';
@@ -43,4 +44,5 @@ export function registerRules(registry: JudgeRegistry): void {
   registry.register('format-json', judgeFormatJson);
   registry.register('unit-convert', judgeUnitConvert);
   registry.register('cite', judgeCite);
+  registry.register('max-tokens', judgeMaxTokens);
 }

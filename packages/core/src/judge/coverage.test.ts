@@ -1,5 +1,5 @@
 /**
- * 覆盖自检（ARCHITECTURE §5）：19 类判定必须全部注册，且注册的 kind 集合与 JUDGE_KINDS 完全一致。
+ * 覆盖自检（ARCHITECTURE §5）：JUDGE_KINDS 里的每一类判定都必须注册，且注册的 kind 集合与 JUDGE_KINDS 完全一致。
  * 少一类 → 测跑时会出现「未知 judge」，这里提前拦住。
  */
 import { test } from 'node:test';
@@ -7,14 +7,14 @@ import assert from 'node:assert/strict';
 import { JUDGE_KINDS, type JudgeKind } from '../types.js';
 import { buildRegistry, missingJudges, runJudge } from './index.js';
 
-test('19 类判定全部已注册（missingJudges 为空）', () => {
+test('JUDGE_KINDS 全部已注册（missingJudges 为空）', () => {
   assert.deepEqual(missingJudges(buildRegistry()), []);
 });
 
 test('注册的 kind 集合与 JUDGE_KINDS 完全一致（不多不少）', () => {
   const registered = buildRegistry().kinds();
   assert.deepEqual(registered, [...JUDGE_KINDS].sort());
-  assert.equal(registered.length, 19);
+  assert.equal(registered.length, JUDGE_KINDS.length);
 });
 
 test('每个 kind 都有可调用的实现函数', () => {

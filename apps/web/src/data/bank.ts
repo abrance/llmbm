@@ -2,19 +2,20 @@
  * 题库入口（wof 维护）。JSON 是唯一事实源：packages/core/src/data/questions.json。
  * 新增题目只改 JSON；本文件只做类型收窄与分组元数据，不含判定逻辑（D2）。
  */
-import type { JudgeKind, Question, ToolSpec } from '@llmbm/core';
+import type { JudgeKind, Question } from '@llmbm/core';
 import raw from '../../../../packages/core/src/data/questions.json' with { type: 'json' };
 
 export interface MockReply {
   text?: string;
   toolCalls?: { name: string; arguments: string }[];
+  /** 演示端点回写的 finish_reason（max-tokens 类题要 length 才算通过）。 */
+  finishReason?: string;
 }
 
 /** 题库条目：spec §2.2 的字段 + 仅供演示端点使用的 mock / tools。 */
 export interface BankQuestion extends Question {
   judge: JudgeKind;
   mock?: MockReply;
-  tools?: ToolSpec[];
 }
 
 interface BankFile {
@@ -35,7 +36,7 @@ export interface GroupMeta {
   goal: string;
 }
 
-export const GROUP_ORDER = ['basic', 'ability', 'adversarial', 'endurance', 'advanced', 'spotlight'] as const;
+export const GROUP_ORDER = ['basic', 'ability', 'adversarial', 'endurance', 'advanced', 'spotlight', 'context'] as const;
 
 export const GROUP_META: Record<string, GroupMeta> = {
   basic: {
@@ -67,6 +68,11 @@ export const GROUP_META: Record<string, GroupMeta> = {
     label: '精选补测',
     hint: '高风险项二次抽检',
     goal: '对拒答、工具参数、SVG 等高风险项做小样本复核，适合上线前补测。',
+  },
+  context: {
+    label: '上下文与参数',
+    hint: '多轮、长输入、max_tokens、工具回填、图片、误杀',
+    goal: '抓「单轮能答、多轮就崩」的端点：丢 system、丢历史、假长上下文、忽略参数、丢图片。',
   },
 };
 

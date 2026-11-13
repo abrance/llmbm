@@ -19,6 +19,7 @@ import {
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { PageHeader, SectionCard } from '../components/Layout.js';
+import { JUDGE_KINDS } from '@llmbm/core';
 import { GROUP_META, GROUP_ORDER, QUESTION_BANK } from '../data/bank.js';
 import { MOCK_AVAILABLE } from '../lib/build.js';
 import { etaMs, failedIds, formatDuration, progressPercent } from '../lib/metrics.js';
@@ -192,11 +193,11 @@ export function RunPage() {
         />
       ) : null}
 
-      {availableJudges.length < 19 ? (
+      {availableJudges.length < JUDGE_KINDS.length ? (
         <Alert
           type="warning"
           showIcon
-          message={`判定规则覆盖 ${availableJudges.length}/19 类`}
+          message={`判定规则覆盖 ${availableJudges.length}/${JUDGE_KINDS.length} 类`}
           description={
             <span>
               其余判定由 core 团队合入。默认只跑可判定的题；打开「包含未上线判定」会把它们一起跑，未实现的判定会按硬失败记 0 分，只建议在核对规则时使用。
@@ -354,7 +355,7 @@ export function RunPage() {
                 {busy ? '跑测中…' : '开始跑测'}
               </Button>
               <Typography.Paragraph type="secondary" style={{ fontSize: 12, margin: '10px 0 0' }}>
-                {availableJudges.length}/19 类判定可用，题库版本 {QUESTION_BANK.length} 题。
+                {availableJudges.length}/{JUDGE_KINDS.length} 类判定可用，题库版本 {QUESTION_BANK.length} 题。
               </Typography.Paragraph>
             </Card>
 

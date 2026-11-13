@@ -4,6 +4,26 @@
 
 ## [未发布]
 
+### 新增
+- **题库扩到 7 组 64 题**，新增 `context`（上下文与参数）组 15 题，专测中转站最常见的作假面：
+  丢 system 提示（`ctx-system-001`）、丢多轮历史（`ctx-history-001/002`）、多轮里格式约束失效（`ctx-degrade-001`）、
+  谎报长上下文（`ctx-needle-001/002` 在 4~6 万字文档的中段与 97% 位置埋针）、忽略 `max_tokens`
+  （`ctx-params-001/002`）、`temperature=0` 下的确定性（`ctx-temp-001`）、工具结果回填闭环
+  （`ctx-tool-loop-001/002`）、图片输入（`ctx-image-001`，64×64 四色块）、以及「正常请求被误杀」（`ctx-refusal-ok-001/002`）。
+- **新 judge `max-tokens`（第 20 类）**：看 `finishReason` 是否真截断 + `completion_tokens` 是否超上限，
+  抓「端点把 max_tokens 当摆设甚至偷偷放大」。
+- **题库输入模型**：`Question` 支持 `messages`（多轮）、`contextDoc`（运行时确定性生成长文档 + 针）、`image`、
+  `request`（temperature/max_tokens）、`tools`；组装规则只在 `packages/core/src/prompt.ts` 一处
+  （`buildMessages` / `summarizeQuestion`），transport 与界面共用。
+- **多模态请求**：`ChatMessage.content` 支持分片数组，openai / anthropic / gemini 三家各自映射图片。
+- **首字延迟与吞吐**：transport 改为增量读流，记录 `ttftMs`（首个正文增量）、`chunks`、`tokensPerSec`（扣掉首字延迟），
+  非流式响应不编造这两个数。
+- **「题库与用例」页**（`/bank`）：逐题展示「这题测什么」+ 实际请求上下文（轮数/角色序列/system 原文/注入规模/
+  图片/工具/参数/超时/输入字符数），展开可看真正发出的消息与判定期望。
+- **证据链与结果页**：每题展开先给「这题测什么 + 本题上下文」；每次采样增加首字、吞吐、分片数；
+  结果页新增「采样一致率」（`temperature=0` 下多次采样是否字节一致，抓随机重放/换模型）。
+- 每题补齐 `description`；`JUDGE_KINDS` 成为判分种类与界面文案的唯一事实源（不再硬编码 19）。
+
 ### 修复
 - `judge/refusal`：否定子句里的危险词不再算「给了做法」。判定改为先剔除引号内容、按强句界切子句，
   只在**肯定形式**出现的子句里才算命中（命中处前 40 字内有否定/澄清标记且其后无转折词 → 视为否定式提及）。

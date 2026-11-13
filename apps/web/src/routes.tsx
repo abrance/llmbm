@@ -3,6 +3,7 @@ import { Navigate, Route, Routes, useLocation, useNavigate } from 'react-router-
 import { ConnectPage } from './pages/ConnectPage.js';
 import { RunPage } from './pages/RunPage.js';
 import { ResultPage } from './pages/ResultPage.js';
+import { BankPage } from './pages/BankPage.js';
 import { CommunityPage } from './pages/CommunityPage.js';
 import { useRun } from './state/runContext.js';
 
@@ -10,6 +11,7 @@ const ITEMS = [
   { key: '/connect', label: '1 · 接入配置' },
   { key: '/run', label: '2 · 跑测' },
   { key: '/result', label: '3 · 结果' },
+  { key: '/bank', label: '题库与用例' },
   { key: '/community', label: '社区榜单' },
 ];
 
@@ -53,6 +55,7 @@ export function AppRoutes() {
           <Route path="/connect" element={<ConnectPage />} />
           <Route path="/run" element={<RunPage />} />
           <Route path="/result" element={<ResultPage />} />
+          <Route path="/bank" element={<BankPage />} />
           <Route path="/community" element={<CommunityPage />} />
           <Route path="*" element={<Navigate to="/connect" replace />} />
         </Routes>

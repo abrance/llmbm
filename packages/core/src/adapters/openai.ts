@@ -7,6 +7,7 @@ import type {
   Adapter,
   ChatMessage,
   ChatRequest,
+  ContentPart,
   EndpointConfig,
   ModelResponse,
   PreparedRequest,
@@ -30,9 +31,16 @@ function toOpenAiMessage(m: ChatMessage): Record<string, unknown> {
     if (m.tool_call_id) out.tool_call_id = m.tool_call_id;
     return out;
   }
-  const out: Record<string, unknown> = { role: m.role, content: m.content };
+  const content = typeof m.content === 'string' ? m.content : m.content.map(toOpenAiPart);
+  const out: Record<string, unknown> = { role: m.role, content };
   if (m.tool_calls && m.tool_calls.length) out.tool_calls = m.tool_calls;
   return out;
+}
+
+/** 多模态分片：文本原样，图片转 data URL（中转站只认 image_url）。 */
+function toOpenAiPart(part: ContentPart): Record<string, unknown> {
+  if (part.type === 'text') return { type: 'text', text: part.text };
+  return { type: 'image_url', image_url: { url: `data:${part.mimeType};base64,${part.dataBase64}` } };
 }
 
 export const openaiAdapter: Adapter = {

@@ -1,9 +1,71 @@
-import { Alert, Button, Collapse, Table, Tabs, Tag, Typography } from 'antd';
+import { Alert, Button, Collapse, Descriptions, Table, Tabs, Tag, Typography } from 'antd';
 import type { ColumnsType } from 'antd/es/table';
-import { groupLabel } from '../data/bank.js';
+import { buildMessages, summarizeQuestion, type QuestionContextSummary } from '@llmbm/core';
+import { QUESTION_BANK, groupLabel, type BankQuestion } from '../data/bank.js';
 import type { QuestionResult, RunRecord, SampleResult } from '../lib/types.js';
 import { ScoreTag, SectionCard } from './Layout.js';
 import { scoreColor } from './Score.js';
+
+const BANK_BY_ID = new Map<string, BankQuestion>(QUESTION_BANK.map((q) => [q.id, q]));
+
+/** 这道题实际发出去的上下文：与跑测发包共用 core 的同一份组装实现。 */
+function QuestionContextBlock({ questionId }: { questionId: string }) {
+  const question = BANK_BY_ID.get(questionId);
+  if (!question) return null;
+  const summary: QuestionContextSummary = summarizeQuestion(question);
+  const truncated = buildMessages(question)
+    .map((m) => (typeof m.content === 'string' ? m.content : m.content.map((p) => (p.type === 'text' ? p.text : `［图片 ${p.mimeType}］`)).join('')))
+    .join('\n\n');
+  return (
+    <div className="question-context" style={{ marginBottom: 12 }}>
+      {question.description ? (
+        <Typography.Paragraph style={{ marginBottom: 8 }}>
+          <Typography.Text strong>这题测什么：</Typography.Text>
+          {question.description}
+        </Typography.Paragraph>
+      ) : null}
+      <Descriptions size="small" column={{ xs: 1, md: 2 }} bordered>
+        <Descriptions.Item label="对话">
+          {summary.mode === 'multi-turn' ? `多轮 ${summary.turns} 条（${summary.roles.join(' → ')}）` : '单轮'}
+        </Descriptions.Item>
+        <Descriptions.Item label="参数">
+          temperature={summary.params.temperature}
+          {summary.params.maxTokens !== undefined ? `，max_tokens=${summary.params.maxTokens}` : ''}
+        </Descriptions.Item>
+        <Descriptions.Item label="输入规模">{summary.inputChars} 字符</Descriptions.Item>
+        <Descriptions.Item label="超时">{summary.timeoutMs} ms</Descriptions.Item>
+        {summary.system ? <Descriptions.Item label="system" span={2}>{summary.system}</Descriptions.Item> : null}
+        {summary.injection ? (
+          <Descriptions.Item label="长文档注入" span={2}>
+            背景约 {summary.injection.fillerChars} 字符，针在 {Math.round(summary.injection.needleAt * 100)}% 位置
+            {summary.injection.needle ? `（针：${summary.injection.needle}）` : ''}
+          </Descriptions.Item>
+        ) : null}
+        {summary.image ? (
+          <Descriptions.Item label="图片" span={2}>
+            {summary.image.mimeType} · {Math.round(summary.image.bytes / 1024)} KB · {summary.image.alt ?? '—'}
+          </Descriptions.Item>
+        ) : null}
+        {summary.tools ? (
+          <Descriptions.Item label="工具" span={2}>
+            {summary.tools.join('、')}
+          </Descriptions.Item>
+        ) : null}
+      </Descriptions>
+      <Collapse
+        size="small"
+        style={{ marginTop: 8 }}
+        items={[
+          {
+            key: 'ctx',
+            label: '实际发出的输入（长文档已截断展示）',
+            children: <pre className="response-text">{truncated.length > 2000 ? `${truncated.slice(0, 2000)}…（共 ${truncated.length} 字）` : truncated}</pre>,
+          },
+        ]}
+      />
+    </div>
+  );
+}
 
 function SampleView({ sample }: { sample: SampleResult }) {
   const response = sample.response;
@@ -26,7 +88,10 @@ function SampleView({ sample }: { sample: SampleResult }) {
       {response.error ? <Alert type="error" showIcon message="本次采样失败" description={response.error} style={{ marginBottom: 12 }} /> : null}
       <div className="sample-meta">
         <span>HTTP {response.httpStatus ?? '—'}</span>
-        <span>{response.latencyMs ?? '—'} ms</span>
+        <span>总耗时 {response.latencyMs ?? '—'} ms</span>
+        <span>首字 {response.ttftMs ?? '—'} ms</span>
+        <span>{response.tokensPerSec !== undefined ? `${response.tokensPerSec} token/s` : '吞吐 —'}</span>
+        <span>分片 {response.chunks ?? '—'}</span>
         <span>finish: {response.finishReason ?? '—'}</span>
         <span>行重复率 {(sample.repeatRatio * 100).toFixed(0)}%</span>
         <span>得分 {sample.score.score.toFixed(1)}</span>
@@ -123,6 +188,8 @@ export function EvidenceTable({ run, onRetry, busy }: { run: RunRecord; onRetry:
         pagination={{ pageSize: 12, showSizeChanger: false }}
         expandable={{
           expandedRowRender: (record) => (
+            <>
+            <QuestionContextBlock questionId={record.questionId} />
             <Tabs
               size="small"
               items={record.samples.map((sample) => ({
@@ -131,6 +198,7 @@ export function EvidenceTable({ run, onRetry, busy }: { run: RunRecord; onRetry:
                 children: <SampleView sample={sample} />,
               }))}
             />
+            </>
           ),
         }}
       />

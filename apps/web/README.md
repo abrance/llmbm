@@ -27,10 +27,16 @@
 | 耐久 endurance | 7 | 0 | long-output, exact, format-json, set, json, not-contains | 长输出是否退化、复读 |
 | 进阶 advanced | 7 | 1 | function-call, tool-args, pelican-svg, json-schema, ordering, json | Agent 场景：工具选择与参数 |
 | 精选补测 spotlight | 6 | 1 | function-call, tool-args, conflict, refusal, pelican-svg, exact | 高风险项上线前复核 |
-| **合计** | **49** | **8** | **19 类全覆盖** | |
+| 上下文与参数 context | 15 | 2 | regex, exact, json, max-tokens, contains, refusal | 丢 system、丢历史、假长上下文、忽略 max_tokens、丢图片、误杀拒答 |
+| **合计** | **64** | **10** | **20 类全覆盖** | |
 
 core 题（答错该题直接 0，§2.3）：`basic-exact-001`、`basic-contains-001`、`basic-json-001`、`basic-schema-001`、
-`adv-not-001`、`adv-refusal-001`、`adv2-function-001`、`spot-refusal-001`。
+`adv-not-001`、`adv-refusal-001`、`adv2-function-001`、`spot-refusal-001`、
+`ctx-history-001`、`ctx-needle-001`。
+
+每题另有 `description`（这题测什么，判分不读它），在「题库与用例」页与证据链里展示；
+上下文（多轮 / 长文档注入 / 图片 / 参数）由 core 的 `summarizeQuestion` 从真正发出的消息推导，
+界面不允许另写一份说明。
 
 题库版本由 `questionBankVersion()` 对 id/group/judge/expect/prompt 取指纹，写入每次结果与导出物（D6）。
 
@@ -76,7 +82,7 @@ npm run build -w @llmbm/web        # tsc + vite build（含 worker chunk）
 ## 5. 边界与未核
 
 - **协议适配**：请求构造（URL / 请求体 / 鉴权头）与响应解析（非流式 JSON / SSE / usage / tool_calls）全部走 `packages/core/src/adapters/**`，`apps/web/src/lib/transport.ts` 只保留 fetch、超时、真取消、429/5xx 退避。三种协议的工具声明都由 core 映射（`ChatRequest.tools`：openai 原样透传、anthropic `input_schema`、gemini `functionDeclarations`），web 侧不再按协议改写请求体。
-- **判定实现**：core 已注册全部 19 类 judge（`missingJudges()` 返回空数组），题库 49 题都跑在真实判定上；「包含未上线判定」开关只作为核对题库的兜底。
+- **判定实现**：core 已注册全部 20 类 judge（`missingJudges()` 返回空数组），题库 49 题都跑在真实判定上；「包含未上线判定」开关只作为核对题库的兜底。
 - **计分**：硬检查失败 / core 题未全对先置 0，`wrapped` 保底只在「有内容、非硬失败、非参数错」时生效，0 分不会再被抬回 85（`packages/core/src/scoring/index.ts`，dc67f52）。
 - **F9 家族指纹**：core 已提供 `fingerprintOf()` / `degradationOf()` 纯函数（弱信号，明确标注不构成定论）；`RunRecord` 尚未带该字段，结果页未展示，等 core 契约补上再接。
 - **Docker 镜像**：`deploy/Dockerfile` 单镜像已实构建并在本机 8080 验收（`docker compose up -d --build`）；CI 的 `build.yml` 为手动触发，默认只验证构建、不推 GHCR。

@@ -6,6 +6,7 @@ import type {
   Adapter,
   ChatMessage,
   ChatRequest,
+  ContentPart,
   EndpointConfig,
   ModelResponse,
   PreparedRequest,
@@ -33,6 +34,12 @@ function parseArguments(raw: string): unknown {
   }
 }
 
+/** 多模态分片：Anthropic 用 base64 block（content 数组里与 text 并列）。 */
+function toAnthropicBlock(part: ContentPart): Record<string, unknown> {
+  if (part.type === 'text') return { type: 'text', text: part.text };
+  return { type: 'image', source: { type: 'base64', media_type: part.mimeType, data: part.dataBase64 } };
+}
+
 /** Anthropic 用 content block 数组表达工具：assistant 发 tool_use，工具结果用 user + tool_result 回填。 */
 function toAnthropicMessage(m: ChatMessage): Record<string, unknown> {
   if (m.role === 'tool') {
@@ -54,14 +61,17 @@ function toAnthropicMessage(m: ChatMessage): Record<string, unknown> {
     }
     return { role: 'assistant', content: blocks };
   }
-  return { role: m.role, content: m.content };
+  const content = typeof m.content === 'string' ? m.content : m.content.map(toAnthropicBlock);
+  return { role: m.role, content };
 }
 
 export const anthropicAdapter: Adapter = {
   protocol: 'anthropic',
 
   buildChatRequest(req: ChatRequest, cfg: EndpointConfig): PreparedRequest {
-    const systemParts = req.messages.filter((m) => m.role === 'system').map((m) => m.content);
+    const systemParts = req.messages
+      .filter((m) => m.role === 'system')
+      .map((m) => (typeof m.content === 'string' ? m.content : m.content.map((p) => (p.type === 'text' ? p.text : '')).join('')));
     if (req.jsonMode) systemParts.push(JSON_ONLY);
 
     const body: Record<string, unknown> = {

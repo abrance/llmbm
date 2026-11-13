@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { etaMs, failedIds, formatDuration, probesOf, progressPercent, repeatRatio, scoreRange } from './metrics.ts';
+import { consistencyOf, etaMs, failedIds, formatDuration, probesOf, progressPercent, repeatRatio, scoreRange } from './metrics.ts';
 import type { QuestionResult } from './types.ts';
 
 function result(id: string, status: 'pass' | 'pending_review' | 'fail', mean: number): QuestionResult {
@@ -73,4 +73,29 @@ test('probesOf/failedIds: 只看非 pass，按分数升序', () => {
   assert.deepEqual(probes.map((p) => p.questionId), ['c', 'b']);
   assert.deepEqual(failedIds(results), ['b', 'c']);
   assert.match(probes[0]?.reason ?? '', /不一样/);
+});
+
+test('consistencyOf：多次采样一致记为一致，不一致记为抖动，N<2 的题不计入', () => {
+  const make = (id: string, texts: string[]): QuestionResult => ({
+    ...result(id, 'pass', 100),
+    samples: texts.map((text, index) => ({
+      index,
+      response: { text },
+      checks: [],
+      score: { questionId: id, group: 'basic', judge: 'exact', score: 100, status: 'pass', checksPassed: 1, checksTotal: 1, checks: [], flags: [], core: false },
+      repeatRatio: 0,
+    })),
+  });
+  const stat = consistencyOf([make('a', ['x', 'x', 'x']), make('b', ['x', 'y', 'x']), make('c', ['only'])]);
+  assert.deepEqual(stat, { questions: 2, identical: 1, rate: 0.5 });
+});
+
+test('consistencyOf：全是没有有效采样的题时返回 0，不编造 100%', () => {
+  const errored: QuestionResult = {
+    ...result('d', 'pending_review', 0),
+    samples: [
+      { index: 0, response: { text: '', error: '超时' }, checks: [], score: { questionId: 'd', group: 'basic', judge: 'exact', score: 0, status: 'pending_review', checksPassed: 0, checksTotal: 0, checks: [], flags: [], core: false, transportError: true }, repeatRatio: 0 },
+    ],
+  };
+  assert.deepEqual(consistencyOf([errored]), { questions: 0, identical: 0, rate: 0 });
 });

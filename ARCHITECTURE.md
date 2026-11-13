@@ -8,8 +8,9 @@
 | 路径 | 所有者 | 内容 |
 |---|---|---|
 | `packages/core/src/judge/registry.ts`、`judge/index.ts`、`scoring/**`、`fingerprint/**`、`aggregate.ts`、`sampling/**`、`types.ts`、`index.ts` | mike | 判分/聚合/抽样/弱信号的骨架与契约 |
-| `packages/core/src/judge/rules/**` | pit | 19 类判定的实现与正反例单测 |
+| `packages/core/src/judge/rules/**` | pit | 各判定规则的实现与正反例单测 |
 | `packages/core/src/adapters/**` | pit | openai / anthropic / gemini 请求体与 SSE 归一化 |
+| `packages/core/src/prompt.ts` | sor | 题库条目 → 请求消息的组装规则（`buildMessages` / `summarizeQuestion`），唯一实现 |
 | `packages/core/src/data/**` | wof | 题库 JSON、分组、题目设计 |
 | `apps/web/**` | wof | React + Vite + antd 前端 |
 | `apps/api/**`、`.github/**`、`deploy/**`、`scripts/**`、`README.md` | pit | Fastify 代理/社区接口、CI、Dockerfile、脚本 |
@@ -42,7 +43,7 @@
 - 空正文 → 返回 `[{ name: 'empty', pass: false, hard: true }]`，不要返回空数组（registry 会兜成硬失败）。
 - `expect` 形状非法 → 抛错（`runJudge` 会兜成硬失败），并在单测里覆盖这条。
 
-### 19 类判定（expect 形状 / 检查语义）
+### 判定清单（expect 形状 / 检查语义）
 
 | kind | expect | 检查语义 |
 |---|---|---|
@@ -65,6 +66,7 @@
 | `format-json` | `{}` | 去 fence/前后缀后整段是合法 JSON，无多余散文；用于 format 维度 |
 | `unit-convert` | `{ value, unit, tolerance?: 0.01, sourceUnit? }` | 抽 `数字+单位`，换算到目标单位比较；单位错 → 失败并记 `unit` |
 | `cite` | `{ values: string[], mode?: 'all'\|'any' }` | 每个引用标记/链接出现在正文（`[1]`、`^1^`、URL 均可命中） |
+| `max-tokens` | `{ maxTokens: number, finishReason?: 'length' }` | 请求带了 `max_tokens` 时端点是否真截断：`finishReason` 必须是 `length`/`max_tokens`/`max_output_tokens`（硬检查），有 `usage` 时 `completion_tokens ≤ maxTokens`，无 `usage` 时用 `maxTokens×6` 字上限兜底。传输失败只返回 transport 硬检查，不做长度判定 |
 
 反例单测必须至少覆盖：**格式对内容错**、**内容缺项**、**空响应**。正例至少一条正常命中。
 
@@ -78,6 +80,26 @@
   题级状态判定只有 `scoring.questionStatus` 一份实现，web worker 也用它。
 - 传输失败的采样数**不是**抬高 timeout 的理由：网关卡挂时中位数 0.6s、卡住的 60s，抬 timeout 只会多等。
 
+### 题库输入模型（`prompt.ts`）
+
+`Question` 除 §2.2 的字段外还可以带「输入形态」，让题库用数据描述多轮/长文档/图片/参数，
+而不是给每类题写一份拼装代码：
+
+| 字段 | 作用 | 组装规则 |
+|---|---|---|
+| `description` | 这题测什么、答错说明什么 | **不参与判分**，只给题库页与证据链展示 |
+| `messages` | 完整多轮对话（含 `system` / `assistant` / `tool`） | 存在时原样发出，忽略 `system`+`prompt`；`prompt` 必须等于最后一条 user 文本（有单测把关） |
+| `contextDoc` | `{ fillerChars, needle?, needleAt? }` | 运行时按确定性算法生成填充文本（不入库），把针插到 `needleAt` 位置，整体拼在最后一条 user 的前部 |
+| `image` | `{ mimeType, dataBase64, alt? }` | 追加到最后一条 user 的 content 分片数组末尾 |
+| `request` | `{ temperature?, maxTokens? }` | 直接进 `ChatRequest`；缺省 `temperature=0` |
+| `tools` | `ToolSpec[]` | 工具声明，与工具回填闭环题配套 |
+
+- `buildMessages(question)` 是「题库 → 请求」的唯一实现，transport 发包与界面展示都必须走它。
+- `summarizeQuestion(question)` 由同一份组装结果推导上下文摘要（轮数、角色序列、注入规模、图片大小、参数、超时、输入字符数），
+  题库页与结果页显示的就是「实际发出去的东西」，不允许各写一套。
+- `ChatMessage.content` 是 `string | ContentPart[]`：纯文本仍是字符串，只有多模态才用分片数组，
+  各 adapter 自己映射（openai `image_url` / anthropic `image` base64 block / gemini `inlineData`）。
+
 ## 4. adapter 契约
 
 `adapters/<protocol>.ts` 各导出一个 `Adapter`（见 `types.ts`），`adapters/index.ts` 导出
@@ -89,6 +111,8 @@
 - anthropic：`/v1/messages`，`system` 单独字段，`max_tokens` 必填；SSE 事件类型 `content_block_delta`（`text_delta` / `input_json_delta`）、`message_delta`（`stop_reason`、`usage`）。
 - gemini：`/v1beta/models/{model}:streamGenerateContent?alt=sse`，`contents[].parts[].text`，`generationConfig`；`usageMetadata` 映射。
 - 429/5xx 退避由调用方做，但 adapter 提供 `isRetryable(status)`。
+- 多模态：`content` 为分片数组时按各自 wire 形状映射（见上节表格），文本分片在前、图片在后。
+- 首字延迟与分片数由调用方（`apps/web/src/lib/transport.ts` 增量读流）采集，adapter 不负责计时。
 - `ChatRequest.tools` 是协议无关的 `ToolSpec[]`（固定 OpenAI function 形状），各 adapter 自己映射：
   openai 原样透传、anthropic `{name, description, input_schema}`、gemini `tools:[{functionDeclarations}]`。
   调用方不按协议分支，也不在 adapter 之外改请求体。
@@ -111,7 +135,7 @@ npm run verify        # typecheck + core 单测
 
 - `judge/rules/shared.ts` 是子句/否定判定的唯一实现（引号剔除 → 强句界切子句 → 否定作用域）。
   需要「共现 ≠ 断言」「否定式提及」语义的规则必须复用它，禁止在单条规则里另写一套。
-- 每条 judge ≥1 正例 1 反例；新增 judge 必须同时补 `judge/coverage.test.ts` 的 19 类齐备断言（pit 首次提交时建立）。
+- 每条 judge ≥1 正例 1 反例；新增 judge 时把 kind 加进 `JUDGE_KINDS`，`judge/coverage.test.ts` 自动要求「注册集合与 JUDGE_KINDS 完全一致」，不必手改数字。
 - 判分逻辑出现第二份实现 → 直接拒合（D1）。
 - 涉及行为的改动必须在 MR 描述写「影响面 / 复现命令 / 原始输出」。
 
