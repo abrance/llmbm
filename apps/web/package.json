@@ -9,7 +9,7 @@
     "build": "tsc -p tsconfig.json --noEmit && vite build",
     "preview": "vite preview",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "test": "node --test --test-force-exit \"src/**/*.test.ts\""
+    "test": "node --test --test-force-exit --test-concurrency=3 \"src/**/*.test.ts\""
   },
   "dependencies": {
     "@llmbm/core": "*",
