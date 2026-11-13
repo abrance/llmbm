@@ -4,6 +4,20 @@
 
 ## [未发布]
 
+### 新增（v0.3.5）
+- **F9 家族指纹 / F10 退化检测接入一次跑测（弱信号）**：core 新增 `runSignalsOf({ samplesByQuestion, baseline? })`，
+  一次给出 `fingerprint`（平均正文 / reasoning 占比 / 工具调用率 / 拒答率 / 样本数）与 `degradation`
+  （重复行占比、复读尾巴、长度萎缩、命中条数）。特征与阈值只有 `packages/core/src/fingerprint/index.ts`
+  一份，web 不再自己算。
+- **弱信号不能被当结论**：所有输出强制带 `weak: true`、`confidence`（只表示这条信号自身有多确定，不是降智概率）与
+  `caveat`；没有同端点历史基线时 `verdict` 恒为 `insufficient-data`，绝不从单次响应形态猜「被换成小模型」。
+  界面与导出里数值与 `caveat` 同屏，措辞只到「与基线有偏离（未确认降级）」。
+- 结果页新增「家族指纹（弱信号）」卡片（问题探针与证据链之间），Markdown 导出加同名小节，json 自动带两个键；
+  `RunRecord.fingerprint` / `degradation` 均为可选，旧记录显示「本次未采集」而不报错。
+- 传输失败的采样不参与弱信号（否则空正文会被 `degradationOf` 判成「长度萎缩」，且与 D5 聚合口径冲突）；
+  拒答率只读 refusal judge 的检查结果，不从正文猜。
+- 单测：core 305 / web 54 / api 29 全绿。
+
 ### 修复
 - **单测并发限流**：三个 workspace 的 `node --test` 都加 `--test-concurrency=3`。此前默认按核数
   开满（本机 12 核 / 41 个测试文件会同时 fork 出上百进程），瞬时 fork 压力会顶穿 cgroup 内存压力阈值，

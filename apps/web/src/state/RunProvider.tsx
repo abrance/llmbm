@@ -211,7 +211,8 @@ export function RunProvider({ children }: { children: ReactNode }) {
             })
           : msg.report;
 
-        const record: RunRecord = {          runId: cfg.runId,
+        const record: RunRecord = {
+          runId: cfg.runId,
           seed: cfg.seed,
           samples: cfg.samples,
           groups: cfg.groups,
