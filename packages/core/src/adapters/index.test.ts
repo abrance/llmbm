@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { detectProtocol, getAdapter, isRetryable, PROTOCOLS, resolveAdapter } from './index.js';
+import { detectProtocol, getAdapter, isFatalStatus, isRetryable, PROTOCOLS, resolveAdapter } from './index.js';
 
 test('getAdapter：三家都能取到且 protocol 自洽', () => {
   for (const p of PROTOCOLS) {
@@ -33,6 +33,11 @@ test('resolveAdapter：显式 protocol 优先于推断', () => {
   const cfg = { baseUrl: 'https://api.openai.com', apiKey: 'k', model: 'gpt-4o', protocol: 'gemini' as const };
   assert.equal(resolveAdapter(cfg).protocol, 'gemini');
   assert.equal(resolveAdapter({ ...cfg, protocol: undefined }).protocol, 'openai');
+});
+
+test('isFatalStatus：鉴权/额度/模型名错误一次即短路，400/422 不算', () => {
+  for (const status of [401, 402, 403, 404]) assert.equal(isFatalStatus(status), true);
+  for (const status of [400, 408, 422, 429, 500, 503, 200]) assert.equal(isFatalStatus(status), false);
 });
 
 test('isRetryable：429/408/5xx 可重试，其余 4xx 不可', () => {

@@ -188,7 +188,11 @@ export function RunProvider({ children }: { children: ReactNode }) {
         if (msg.cancelled && allResults.length === 0) {
           setRun(undefined);
           setPhase('idle');
-          setError('已取消：本次没有完成任何题目，断点已保留。回到跑测页点「继续上次」即可续跑。');
+          setError(
+            msg.abortReason
+              ? `跑测已提前终止（${msg.abortReason}）。本次没有完成任何题目，断点已保留；修好端点后回跑测页点「继续上次」即可续跑。`
+              : '已取消：本次没有完成任何题目，断点已保留。回到跑测页点「继续上次」即可续跑。',
+          );
           setProgress({ done: 0, total: cfg.expected, sampleIndex: 0, samples: cfg.samples });
           stopWorker();
           mergeRef.current = undefined;
@@ -220,6 +224,7 @@ export function RunProvider({ children }: { children: ReactNode }) {
           results: allResults,
           report,
           injectFlaky: cfg.injectFlaky,
+          ...(msg.abortReason ? { abortReason: msg.abortReason } : {}),
           ...(merge ? { retriedAt: new Date().toISOString() } : {}),
         };
         setRun(record);

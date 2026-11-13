@@ -13,6 +13,7 @@ import {
   type QuestionScore,
 } from '@llmbm/core';
 import type { BankQuestion } from '../data/bank.js';
+import { FailureGuard } from './abort.js';
 import { chatOnce } from './transport.js';
 import { repeatRatio } from './metrics.js';
 import type { QuestionResult, SampleResult, WorkerEvent, WorkerRequest, WorkerStart } from './types.js';
@@ -25,6 +26,9 @@ interface WorkerScope {
 const scope = self as unknown as WorkerScope;
 const controllers = new Set<AbortController>();
 let cancelled = false;
+/** 短路原因（非用户取消）：致命状态码或连续传输失败，跑完当前采样就收。 */
+let abortReason: string | undefined;
+const guard = new FailureGuard();
 
 function post(msg: WorkerEvent): void {
   scope.postMessage(msg);
@@ -46,7 +50,7 @@ async function runQuestion(start: WorkerStart, question: BankQuestion): Promise<
   const scores: QuestionScore[] = [];
 
   for (let index = 0; index < start.samples; index++) {
-    if (cancelled) return undefined;
+    if (cancelled || abortReason) return undefined;
     const controller = new AbortController();
     controllers.add(controller);
     try {
@@ -55,7 +59,8 @@ async function runQuestion(start: WorkerStart, question: BankQuestion): Promise<
         sampleIndex: index,
         injectFlaky: start.injectFlaky,
       });
-      if (cancelled) return undefined;
+      abortReason = guard.note(response);
+      if (cancelled || abortReason) return undefined;
       const checks = judge(question, response, index);
       const score = scoreQuestion(question, checks, {
         wrapped: detectWrapped(response.text),
@@ -112,7 +117,7 @@ async function run(start: WorkerStart): Promise<void> {
 
   try {
     for (const question of pending) {
-      if (cancelled) break;
+      if (cancelled || abortReason) break;
       post({ type: 'progress', done: results.length, total, questionId: question.id, sampleIndex: 0, samples: start.samples });
       const result = await runQuestion(start, question);
       if (!result) break;
@@ -126,7 +131,7 @@ async function run(start: WorkerStart): Promise<void> {
       expectedQuestions: total,
       weights,
     });
-    post({ type: 'done', report, results, cancelled });
+    post({ type: 'done', report, results, cancelled: cancelled || abortReason !== undefined, ...(abortReason ? { abortReason } : {}) });
   } catch (err) {
     post({ type: 'fatal', error: err instanceof Error ? err.message : String(err) });
   }

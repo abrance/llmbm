@@ -44,6 +44,15 @@ export function isRetryable(status: number): boolean {
   return status === 429 || status === 408 || (status >= 500 && status <= 599);
 }
 
+/**
+ * 端点级致命状态：换题重试也不会变好，只会把同一个错误刷满整卷。
+ * 401/403 鉴权、402 额度、404 路径或模型名不存在。
+ * 400/422 留给题目维度（可能只是某题请求形状不被接受），不计入这里。
+ */
+export function isFatalStatus(status: number): boolean {
+  return status === 401 || status === 402 || status === 403 || status === 404;
+}
+
 /** 用 cfg.protocol，缺省时按 baseUrl + model 推断。 */
 export function resolveAdapter(cfg: EndpointConfig): Adapter {
   return getAdapter(cfg.protocol ?? detectProtocol(cfg.baseUrl, cfg.model));

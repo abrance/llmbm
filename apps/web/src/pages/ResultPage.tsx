@@ -157,8 +157,16 @@ export function ResultPage() {
         <Alert
           type="warning"
           showIcon
-          message={`这次跑测被取消，完成 ${report.stability.completed}/${record.expected} 题`}
-          description="分数只代表已完成的题；断点已保存，可以回跑测页继续。"
+          message={
+            record.abortReason
+              ? `跑测已提前终止，完成 ${report.stability.completed}/${record.expected} 题`
+              : `这次跑测被取消，完成 ${report.stability.completed}/${record.expected} 题`
+          }
+          description={
+            record.abortReason
+              ? `终止原因：${record.abortReason}。分数只代表已完成的题（未跑的题不进能力分，但完成率会下降）；断点已保存，修好端点后回跑测页点「继续上次」即可续跑。`
+              : '分数只代表已完成的题；断点已保存，可以回跑测页继续。'
+          }
         />
       ) : null}
 
