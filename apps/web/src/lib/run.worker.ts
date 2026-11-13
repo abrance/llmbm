@@ -4,6 +4,7 @@
  */
 import {
   aggregate,
+  classifyFailure,
   detectWrapped,
   judge,
   questionStatus,
@@ -13,8 +14,8 @@ import {
   type QuestionScore,
 } from '@llmbm/core';
 import type { BankQuestion } from '../data/bank.js';
-import { FailureGuard } from './abort.js';
-import { chatOnce } from './transport.js';
+import { FailureGuard, toleratedNotices } from './abort.js';
+import { chatOnce, probeEndpoint } from './transport.js';
 import { repeatRatio } from './metrics.js';
 import type { QuestionResult, SampleResult, WorkerEvent, WorkerRequest, WorkerStart } from './types.js';
 
@@ -42,6 +43,18 @@ function endpointOf(start: WorkerStart): EndpointConfig {
     protocol: start.endpoint.protocol,
     ...(start.endpoint.headers ? { headers: start.endpoint.headers } : {}),
   };
+}
+
+/**
+ * 跑测前的预检：账户/配置层面的问题（订阅过期、没钱、Key 失效、模型名不存在）
+ * 在第一题之前就认出来并终止，不让用户白等一整卷。瞬时抖动不算，交给正式请求的重试。
+ */
+async function preflight(start: WorkerStart): Promise<string | undefined> {
+  const probe = await probeEndpoint(endpointOf(start));
+  if (probe.error === undefined) return undefined;
+  const kind = classifyFailure(probe);
+  if (kind !== 'account' && kind !== 'config') return undefined;
+  return guard.note(probe);
 }
 
 async function runQuestion(start: WorkerStart, question: BankQuestion): Promise<QuestionResult | undefined> {
@@ -116,6 +129,7 @@ async function run(start: WorkerStart): Promise<void> {
   for (const q of start.questions) weights[q.id] = q.weight ?? 1;
 
   try {
+    if (!cancelled && pending.length > 0) abortReason = await preflight(start);
     for (const question of pending) {
       if (cancelled || abortReason) break;
       post({ type: 'progress', done: results.length, total, questionId: question.id, sampleIndex: 0, samples: start.samples });
@@ -130,8 +144,17 @@ async function run(start: WorkerStart): Promise<void> {
       scores: results.flatMap((r) => r.samples.map((s) => s.score)),
       expectedQuestions: total,
       weights,
+      samplesPerQuestion: start.samples,
     });
-    post({ type: 'done', report, results, cancelled: cancelled || abortReason !== undefined, ...(abortReason ? { abortReason } : {}) });
+    const notices = toleratedNotices(guard.tolerated(), report.transport);
+    post({
+      type: 'done',
+      report,
+      results,
+      cancelled: cancelled || abortReason !== undefined,
+      ...(abortReason ? { abortReason } : {}),
+      ...(notices.length > 0 ? { notices } : {}),
+    });
   } catch (err) {
     post({ type: 'fatal', error: err instanceof Error ? err.message : String(err) });
   }

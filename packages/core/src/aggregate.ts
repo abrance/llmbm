@@ -24,7 +24,11 @@ export interface OutcomeReport {
   dimensions: DimensionScore[];
   /** 格式检查命中率（format-json 类题，题均值 ≥90 记命中）。 */
   format: { rate: number; hit: number; total: number };
-  /** 完成率 = 有采样的题 / 应跑题数。 */
+  /**
+   * 完成率 = 有采样的题 / 应跑题数。
+   * 注意：端点拒绝请求时该题仍有采样（只是被拒），所以单看完成率不会下降；
+   * 榜单与展示上的 `rate` 用的是有效采样率（见 `samplesPerQuestion`）。
+   */
   stability: { completed: number; expected: number; rate: number };
   counts: { pass: number; pending: number; fail: number; questions: number };
   /**
@@ -42,6 +46,12 @@ export interface AggregateInput {
   expectedQuestions?: number;
   /** 每题权重，缺省 1。 */
   weights?: Record<string, number>;
+  /**
+   * 每题采样数。给出时 `stability.rate` 用「有效采样 / 应跑采样」算：
+   * 被端点拒绝、超时、5xx 的采样都会压低它——容忍偶发失败就意味着稳定性降一点，
+   * 而不是整卷作废。缺省时退回旧口径（完成题数 / 应跑题数）。
+   */
+  samplesPerQuestion?: number;
 }
 
 function groupByQuestion(scores: readonly QuestionScore[]): Map<string, QuestionScore[]> {
@@ -54,7 +64,7 @@ function groupByQuestion(scores: readonly QuestionScore[]): Map<string, Question
   return map;
 }
 
-export function aggregate({ scores, expectedQuestions, weights }: AggregateInput): OutcomeReport {
+export function aggregate({ scores, expectedQuestions, weights, samplesPerQuestion }: AggregateInput): OutcomeReport {
   const perQuestion = groupByQuestion(scores);
   const dimMap = new Map<string, { weighted: number; weight: number; halfWidths: number[] }>();
   const questionMeans: { mean: number; weight: number }[] = [];
@@ -118,6 +128,13 @@ export function aggregate({ scores, expectedQuestions, weights }: AggregateInput
   const completed = perQuestion.size;
   const expected = expectedQuestions ?? completed;
   const scored = questionMeans.length;
+  const plannedSamples = expected * (samplesPerQuestion ?? 0);
+  const stabilityRate =
+    samplesPerQuestion !== undefined && plannedSamples > 0
+      ? Math.min(1, validSamples / plannedSamples)
+      : expected === 0
+        ? 0
+        : completed / expected;
 
   return {
     total: {
@@ -129,7 +146,7 @@ export function aggregate({ scores, expectedQuestions, weights }: AggregateInput
     capped,
     dimensions,
     format: { rate: formatTotal === 0 ? 0 : formatHit / formatTotal, hit: formatHit, total: formatTotal },
-    stability: { completed, expected, rate: expected === 0 ? 0 : completed / expected },
+    stability: { completed, expected, rate: stabilityRate },
     counts: { pass, pending, fail, questions: completed },
     transport: { errors: transportErrors, samples: totalSamples, rate: totalSamples === 0 ? 0 : transportErrors / totalSamples },
     samples: { valid: validSamples, total: totalSamples },

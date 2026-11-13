@@ -34,6 +34,8 @@ function toOpenAiMessage(m: ChatMessage): Record<string, unknown> {
   const content = typeof m.content === 'string' ? m.content : m.content.map(toOpenAiPart);
   const out: Record<string, unknown> = { role: m.role, content };
   if (m.tool_calls && m.tool_calls.length) out.tool_calls = m.tool_calls;
+  // thinking 模式端点要求历史里的 assistant 推理原样带回，缺了直接 400。
+  if (m.role === 'assistant' && m.reasoningContent !== undefined) out.reasoning_content = m.reasoningContent;
   return out;
 }
 

@@ -183,6 +183,21 @@ export function ResultPage() {
         />
       ) : null}
 
+      {record.notices && record.notices.length > 0 ? (
+        <Alert
+          type="warning"
+          showIcon
+          message="部分请求被端点拒绝，已从能力分剔除"
+          description={
+            <ul className="notice-list">
+              {record.notices.map((n) => (
+                <li key={n}>{n}</li>
+              ))}
+            </ul>
+          }
+        />
+      ) : null}
+
       <Alert
         type="info"
         showIcon
@@ -234,7 +249,9 @@ export function ResultPage() {
               <div>
                 <span>稳定性</span>
                 <strong>{(report.stability.rate * 100).toFixed(0)}%</strong>
-                <small>{report.stability.completed}/{report.stability.expected} 题完成</small>
+                <small>
+                  有效采样 {sampleCounts.valid}/{sampleCounts.total} · {report.stability.completed}/{report.stability.expected} 题完成
+                </small>
               </div>
               <div>
                 <span>采样一致率</span>

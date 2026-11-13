@@ -69,8 +69,11 @@ export function exportMarkdown(run: RunRecord): string {
     `- 传输错误：${(transport.rate * 100).toFixed(1)}%（${transport.errors}/${transport.samples} 次请求没收到答案，已从能力分聚合剔除；有效采样 ${sampleCounts.valid}/${sampleCounts.total}）`,
   );
   lines.push(`- 格式命中率：${(report.format.rate * 100).toFixed(1)}%（${report.format.hit}/${report.format.total}）`);
-  lines.push(`- 稳定性：${(report.stability.rate * 100).toFixed(1)}%（${report.stability.completed}/${report.stability.expected}）`);
+  lines.push(
+    `- 稳定性：${(report.stability.rate * 100).toFixed(1)}%（有效采样 ${report.samples.valid}/${report.samples.total}，完成 ${report.stability.completed}/${report.stability.expected} 题）`,
+  );
   lines.push(`- 通过 / 待复核 / 失败：${report.counts.pass} / ${report.counts.pending} / ${report.counts.fail}`);
+  for (const notice of run.notices ?? []) lines.push(`- 被容忍的失败：${notice}`);
   lines.push(`- 题库版本：${run.questionBankVersion}`);
   lines.push(`- 判定规则版本：${run.judgeRuleVersion}`);
   lines.push(`- 随机种子：${run.seed}；每题采样：${run.samples} 次`);

@@ -206,6 +206,7 @@ export function RunProvider({ children }: { children: ReactNode }) {
               scores: allResults.flatMap((r) => r.samples.map((s) => s.score)),
               expectedQuestions: merge.expected,
               weights,
+              samplesPerQuestion: cfg.samples,
             })
           : msg.report;
 
@@ -225,6 +226,7 @@ export function RunProvider({ children }: { children: ReactNode }) {
           report,
           injectFlaky: cfg.injectFlaky,
           ...(msg.abortReason ? { abortReason: msg.abortReason } : {}),
+          ...(msg.notices ? { notices: msg.notices } : {}),
           ...(merge ? { retriedAt: new Date().toISOString() } : {}),
         };
         setRun(record);

@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import type { EndpointConfig, ToolSpec } from '@llmbm/core';
 import type { BankQuestion } from '../data/bank.ts';
-import { chatOnce, fetchModels, pingEndpoint, prepareChatRequest, tokensPerSecond } from './transport.ts';
+import { chatOnce, fetchModels, pingEndpoint, prepareChatRequest, probeEndpoint, tokensPerSecond } from './transport.ts';
 
 const OPENAI: EndpointConfig = {
   baseUrl: 'https://relay.example.com',
@@ -323,4 +323,80 @@ test('连通性测试：正文真的为空时仍要失败，并带上 finish_rea
     () => pingEndpoint(OPENAI, fetchOnce(response)),
     (err: Error) => /正文\/推理\/工具调用全为空/.test(err.message) && /finish_reason=stop/.test(err.message),
   );
+});
+
+test('thinking 模式要求回传 reasoning_content：命中该报错补一次空值重试，第二次成功即算通', async () => {
+  let calls = 0;
+  const bodies: Record<string, unknown>[] = [];
+  const fetchStub = (async (_url: string, init?: RequestInit) => {
+    calls += 1;
+    const body = JSON.parse(String(init?.body)) as { messages: Record<string, unknown>[] };
+    bodies.push(body as unknown as Record<string, unknown>);
+    const assistant = body.messages.find((m) => m['role'] === 'assistant');
+    if (assistant && assistant['reasoning_content'] === undefined) {
+      return jsonResponse(
+        {
+          error: {
+            message: 'The `reasoning_content` in the thinking mode must be passed back to the API.',
+            type: 'invalid_request_error',
+          },
+        },
+        400,
+      );
+    }
+    return jsonResponse({ choices: [{ message: { content: '408' }, finish_reason: 'stop' }] });
+  }) as unknown as typeof fetch;
+
+  const out = await chatOnce(
+    OPENAI,
+    question({
+      prompt: '两轮',
+      messages: [
+        { role: 'user', content: '3 乘 4 是多少？' },
+        { role: 'assistant', content: '12' },
+        { role: 'user', content: '把结果再乘 34' },
+      ],
+    }),
+    options(),
+    fetchStub,
+  );
+
+  assert.equal(calls, 2);
+  assert.equal(out.error, undefined);
+  assert.equal(out.text, '408');
+  const retried = (bodies[1]?.['messages'] as Record<string, unknown>[]).find((m) => m['role'] === 'assistant');
+  assert.equal(retried?.['reasoning_content'], '');
+});
+
+test('兼容重试只做一次：补了 reasoning_content 仍被 400 拒绝就不再重试', async () => {
+  let calls = 0;
+  const fetchStub = (async () => {
+    calls += 1;
+    return jsonResponse({ error: { message: 'reasoning_content must be passed back', type: 'invalid_request_error' } }, 400);
+  }) as unknown as typeof fetch;
+
+  const out = await chatOnce(
+    OPENAI,
+    question({
+      messages: [
+        { role: 'user', content: 'a' },
+        { role: 'assistant', content: 'b' },
+        { role: 'user', content: 'c' },
+      ],
+    }),
+    options(),
+    fetchStub,
+  );
+
+  assert.equal(calls, 2);
+  assert.equal(out.httpStatus, 400);
+  assert.match(String(out.error), /HTTP 400/);
+});
+
+test('预检探针把账户类错误原样带回来（带 httpStatus 供定性）', async () => {
+  // 429 会被重试，响应体每次要新的 Response 实例
+  const fetchStub = (async () => jsonResponse({ error: { message: 'insufficient_quota' } }, 429)) as unknown as typeof fetch;
+  const probe = await probeEndpoint(OPENAI, fetchStub);
+  assert.equal(probe.httpStatus, 429);
+  assert.match(String(probe.error), /insufficient_quota/);
 });

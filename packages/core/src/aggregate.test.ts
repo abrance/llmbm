@@ -105,3 +105,66 @@ test('D5：整场都是传输失败时不崩，能力分 0、错误率 1', () =>
   assert.equal(r.transport.rate, 1);
   assert.equal(r.dimensions.length, 0);
 });
+
+test('稳定性按有效采样率算：被拒/超时压低它，而不是「有采样就算完成」', () => {
+  const scores: QuestionScore[] = [];
+  // 2 题 × 2 采样：1 次被端点拒绝（transportError），其余 3 次正常满���
+  for (let i = 0; i < 2; i++) {
+    for (let s = 0; s < 2; s++) {
+      const rejected = i === 0 && s === 0;
+      scores.push({
+        questionId: `q${i}`,
+        group: 'basic',
+        judge: 'exact',
+        score: rejected ? 0 : 100,
+        status: rejected ? 'pending_review' : 'pass',
+        checksPassed: rejected ? 0 : 1,
+        checksTotal: 1,
+        checks: [],
+        flags: [],
+        core: false,
+        ...(rejected ? { transportError: true } : {}),
+      });
+    }
+  }
+  const report = aggregate({ scores, expectedQuestions: 2, samplesPerQuestion: 2 });
+  assert.equal(report.stability.completed, 2);
+  assert.equal(report.stability.expected, 2);
+  assert.equal(report.stability.rate, 0.75);
+  assert.equal(report.samples.valid, 3);
+});
+
+test('整卷被拒时稳定性为 0（不因「每题都有采样」而显示 100%）', () => {
+  const scores: QuestionScore[] = [0, 1].map((i) => ({
+    questionId: `q${i}`,
+    group: 'basic',
+    judge: 'exact',
+    score: 0,
+    status: 'pending_review' as const,
+    checksPassed: 0,
+    checksTotal: 1,
+    checks: [],
+    flags: [] as [],
+    core: false,
+    transportError: true,
+  }));
+  const report = aggregate({ scores, expectedQuestions: 2, samplesPerQuestion: 1 });
+  assert.equal(report.stability.rate, 0);
+});
+
+test('不给 samplesPerQuestion 时退回旧口径（完成题数 / 应跑题数）', () => {
+  const scores: QuestionScore[] = [0, 1].map((i) => ({
+    questionId: `q${i}`,
+    group: 'basic',
+    judge: 'exact',
+    score: 100,
+    status: 'pass' as const,
+    checksPassed: 1,
+    checksTotal: 1,
+    checks: [],
+    flags: [] as [],
+    core: false,
+  }));
+  const report = aggregate({ scores, expectedQuestions: 4 });
+  assert.equal(report.stability.rate, 0.5);
+});

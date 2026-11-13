@@ -68,8 +68,10 @@ export interface RunRecord {
   results: QuestionResult[];
   report: OutcomeReport;
   injectFlaky: boolean;
-  /** 非用户取消的提前终止原因（致命状态码 / 连续传输失败）；有值时 cancelled 也为 true。 */
+  /** 非用户取消的提前终止原因（账户/配置/端点不可用）；有值时 cancelled 也为 true。 */
   abortReason?: string;
+  /** 被容忍的失败说明（请求形状被拒、瞬时失败），展示用，不进能力分。 */
+  notices?: string[];
   /** 补测时间（只重跑失败题时更新）。 */
   retriedAt?: string;
 }
@@ -130,8 +132,10 @@ export type WorkerEvent =
       report: OutcomeReport;
       results: QuestionResult[];
       cancelled: boolean;
-      /** 短路原因：致命状态码或连续传输失败，与用户取消区分。 */
+      /** 短路原因：账户/配置类问题或连续失败，与用户取消区分。 */
       abortReason?: string;
+      /** 被容忍的失败说明（请求形状被拒、瞬时失败）。 */
+      notices?: string[];
     }
   | { type: 'fatal'; error: string };
 

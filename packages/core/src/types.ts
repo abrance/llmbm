@@ -193,6 +193,11 @@ export interface ChatMessage {
   tool_call_id?: string;
   /** 仅 role='tool'：被调用的函数名（gemini 的 functionResponse 按名字回填，必需）。 */
   name?: string;
+  /**
+   * 仅 assistant：历史轮的 reasoning_content。thinking 模式端点（DeepSeek 等）要求
+   * 多轮对话里把上一轮的推理原样带回，缺了会被 400 拒绝。
+   */
+  reasoningContent?: string;
 }
 
 /**

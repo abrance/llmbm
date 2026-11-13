@@ -437,6 +437,15 @@ code {
   max-height: 360px;
 }
 
+.notice-list {
+  margin: 0;
+  padding-left: 18px;
+}
+
+.notice-list li + li {
+  margin-top: 4px;
+}
+
 .empty-block {
   text-align: center;
   padding: 40px 16px;

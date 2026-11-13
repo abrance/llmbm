@@ -1,6 +1,8 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { detectProtocol, getAdapter, isFatalStatus, isRetryable, PROTOCOLS, resolveAdapter } from './index.js';
+import { classifyFailure } from '../failure.js';
+import { openaiAdapter } from './openai.js';
 
 test('getAdapter：三家都能取到且 protocol 自洽', () => {
   for (const p of PROTOCOLS) {
@@ -49,4 +51,38 @@ test('isRetryable：429/408/5xx 可重试，其余 4xx 不可', () => {
   assert.equal(isRetryable(401), false);
   assert.equal(isRetryable(404), false);
   assert.equal(isRetryable(200), false);
+});
+
+test('classifyFailure：账户/配置/请求形状/瞬时四类分得清', () => {
+  assert.equal(classifyFailure({ httpStatus: 401, error: 'HTTP 401' }), 'account');
+  assert.equal(classifyFailure({ httpStatus: 402, error: 'HTTP 402' }), 'account');
+  assert.equal(classifyFailure({ httpStatus: 403, error: 'HTTP 403' }), 'account');
+  assert.equal(classifyFailure({ httpStatus: 404, error: 'HTTP 404：model not found' }), 'config');
+  assert.equal(classifyFailure({ httpStatus: 429, error: 'HTTP 429：insufficient_quota' }), 'account');
+  assert.equal(classifyFailure({ httpStatus: 400, error: 'HTTP 400：余额不足' }), 'account');
+  assert.equal(
+    classifyFailure({ httpStatus: 400, error: 'HTTP 400：{"error":{"message":"The `reasoning_content` in the thinking mode must be passed back to the API."}}' }),
+    'request',
+  );
+  assert.equal(classifyFailure({ httpStatus: 422, error: 'HTTP 422' }), 'request');
+  assert.equal(classifyFailure({ httpStatus: 429, error: 'HTTP 429：rate limited' }), 'transient');
+  assert.equal(classifyFailure({ httpStatus: 503, error: 'HTTP 503' }), 'transient');
+  assert.equal(classifyFailure({ error: '请求超时（30000ms）' }), 'transient');
+});
+
+test('openai 适配器：assistant 历史带 reasoningContent 时原样透传', () => {
+  const request = openaiAdapter.buildChatRequest(
+    {
+      model: 'deepseek-reasoner',
+      messages: [
+        { role: 'user', content: '3 乘 4' },
+        { role: 'assistant', content: '12', reasoningContent: '先算乘法' },
+        { role: 'user', content: '再乘 34' },
+      ],
+    },
+    { baseUrl: 'https://relay.example.com', apiKey: 'k', model: 'deepseek-reasoner' },
+  );
+  const body = JSON.parse(request.body) as { messages: Record<string, unknown>[] };
+  assert.equal(body.messages[1]?.['reasoning_content'], '先算乘法');
+  assert.equal('reasoning_content' in (body.messages[0] as object), false);
 });

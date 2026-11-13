@@ -195,17 +195,32 @@ export function tokensPerSecond(usage: { completionTokens?: number } | undefined
   return Math.round((tokens / decodeMs) * 1000 * 10) / 10;
 }
 
+/**
+ * 兼容重试：thinking 模式端点（DeepSeek 类）要求多轮里 assistant 消息带回上一轮的
+ * reasoning_content，题库的历史是合成的，本来没有。命中这个明确报错时补一次空值重试
+ * —— 只试一次，仍被拒就当成「请求形状不被接受」记下来，不再猜。
+ */
+function withReasoningEcho(messages: ChatMessage[]): ChatMessage[] {
+  return messages.map((m) => (m.role === 'assistant' ? { ...m, reasoningContent: m.reasoningContent ?? '' } : m));
+}
+
 async function execute(
   ep: EndpointConfig,
-  messages: ChatMessage[],
+  initialMessages: ChatMessage[],
   opts: ExecuteOptions,
   fetchImpl: typeof fetch,
 ): Promise<ModelResponse> {
-  const { adapter, request } = prepareChatRequest(ep, messages, {
-    ...(opts.tools !== undefined ? { tools: opts.tools } : {}),
-    ...(opts.maxTokens !== undefined ? { maxTokens: opts.maxTokens } : {}),
-    ...(opts.temperature !== undefined ? { temperature: opts.temperature } : {}),
-  });
+  let messages = initialMessages;
+  let echoed = false;
+  const buildRequest = (msgs: ChatMessage[]) =>
+    prepareChatRequest(ep, msgs, {
+      ...(opts.tools !== undefined ? { tools: opts.tools } : {}),
+      ...(opts.maxTokens !== undefined ? { maxTokens: opts.maxTokens } : {}),
+      ...(opts.temperature !== undefined ? { temperature: opts.temperature } : {}),
+    });
+  const built = buildRequest(messages);
+  const adapter = built.adapter;
+  let request = built.request;
   const headers: Record<string, string> = { ...request.headers, ...(opts.headers ?? {}) };
 
   for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
@@ -231,6 +246,13 @@ async function execute(
 
       if (!res.ok) {
         const rawText = await res.text().catch(() => '');
+        if (!echoed && res.status === 400 && /reasoning_content/i.test(rawText) && messages.some((m) => m.role === 'assistant')) {
+          echoed = true;
+          messages = withReasoningEcho(messages);
+          request = buildRequest(messages).request;
+          attempt -= 1; // 兼容重试不占重试预算
+          continue;
+        }
         if (isRetryable(res.status) && attempt < MAX_RETRIES) {
           await sleep(retryDelay(res, attempt), opts.signal);
           continue;
@@ -364,6 +386,19 @@ export async function fetchModels(ep: EndpointConfig, fetchImpl: typeof fetch = 
   }
 
   return requestModels(request, adapter, fetchImpl);
+}
+
+/**
+ * 预检探针：跑测第一题之前先发一条最小请求，只用来判断「账户/配置」层面是否可用。
+ * 返回原始 ModelResponse，由调用方用 classifyFailure 定性；健康端点的一个 token 成本。
+ */
+export async function probeEndpoint(ep: EndpointConfig, fetchImpl: typeof fetch = fetch): Promise<ModelResponse> {
+  return execute(
+    ep,
+    [{ role: 'user', content: '只回复 ok' }],
+    { signal: new AbortController().signal, timeoutMs: 30000, maxTokens: 16 },
+    fetchImpl,
+  );
 }
 
 /**
