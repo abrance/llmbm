@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { degradationOf, repeatRatioOf, fingerprintOf, featuresOf } from './index.js';
+import { degradationOf, repeatRatioOf, fingerprintOf, featuresOf, isRefusalSample, runSignalsOf } from './index.js';
 import type { ModelResponse } from '../types.js';
 
 const resp = (over: Partial<ModelResponse> = {}): ModelResponse => ({ text: 'abc', ...over });
@@ -78,4 +78,56 @@ test('F9 特征：reasoning / 工具调用 / 拒答占比都是占比而非计�
   assert.equal(f.toolCallRate, 0.333);
   assert.equal(f.refusalRate, 0.333);
   assert.equal(f.samples, 3);
+});
+
+/* --------------------------------------------------- 一次跑测的整体弱信号（F9+F10 契约） */
+
+test('F9/F10 runSignalsOf：无基线 → fingerprint 只能 insufficient-data，退化照报', () => {
+  const r = runSignalsOf({
+    samplesByQuestion: [
+      [{ response: resp({ text: 'a'.repeat(100) }) }, { response: resp({ text: 'b'.repeat(100) }) }],
+      [{ response: resp({ text: 'loopy\nloopy\nloopy\nloopy\nc' }) }],
+    ],
+  });
+  assert.equal(r.fingerprint.verdict, 'insufficient-data');
+  assert.equal(r.fingerprint.features.samples, 3);
+  assert.equal(r.fingerprint.deviations.length, 0);
+  assert.equal(r.degradation.samples, 3);
+  assert.equal(r.degradation.flagged, 1);
+  assert.ok(r.degradation.caveat.includes('弱信号'));
+  assert.equal(r.degradation.weak, true);
+});
+
+test('F9/F10 runSignalsOf：有基线且偏离 → suspect-degraded 并列出偏离项', () => {
+  const baseResponses = [resp({ text: 'a'.repeat(200), toolCalls: [{ id: 'c1', name: 'f' }] })];
+  const baseline = featuresOf({ responses: baseResponses });
+  const r = runSignalsOf({
+    samplesByQuestion: [[{ response: resp({ text: '短' }) }, { response: resp({ text: '也很短' }) }]],
+    baseline,
+  });
+  assert.equal(r.fingerprint.verdict, 'suspect-degraded');
+  assert.ok(r.fingerprint.deviations.length >= 1);
+  assert.ok(r.fingerprint.confidence <= 0.6);
+});
+
+test('F9 拒答率只认 refusal judge 的检查，不从正文猜', () => {
+  assert.equal(isRefusalSample([{ name: 'refusal.marker', pass: true }]), true);
+  assert.equal(isRefusalSample([{ name: 'refusal.no-false-refusal', pass: false }]), true);
+  assert.equal(isRefusalSample([{ name: 'refusal.marker', pass: false }]), false);
+  assert.equal(isRefusalSample([{ name: 'contains', pass: true }]), false);
+
+  const r = runSignalsOf({
+    samplesByQuestion: [
+      [{ response: resp(), checks: [{ name: 'refusal.marker', pass: true }] }, { response: resp(), checks: [] }],
+    ],
+  });
+  assert.equal(r.fingerprint.features.refusalRate, 0.5);
+});
+
+test('F10 退化汇总：无采样时不猜，flagged 0', () => {
+  const r = runSignalsOf({ samplesByQuestion: [] });
+  assert.equal(r.degradation.samples, 0);
+  assert.equal(r.degradation.flagged, 0);
+  assert.equal(r.degradation.confidence, 0);
+  assert.equal(r.fingerprint.verdict, 'insufficient-data');
 });

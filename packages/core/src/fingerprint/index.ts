@@ -9,7 +9,7 @@
  *
  * 判定口径：全部基于已抓到的响应原文与 usage，不联网、不调模型（D1）。
  */
-import type { ModelResponse } from '../types.js';
+import type { JudgeCheck, ModelResponse } from '../types.js';
 
 /** 所有 F9/F10 输出的公共外壳。 */
 export interface WeakSignal {
@@ -34,6 +34,8 @@ export interface DegradationSignal extends WeakSignal {
   tailLoop: boolean;
   /** 相对同题其他采样的长度萎缩比 0~1；无 peer 时为 0 且 confidence 降低。 */
   lengthCollapse: number;
+  /** 是否命中任一退化信号（阈值只在这里定义，展示方不要自己再判一次）。 */
+  flagged: boolean;
 }
 
 function nonEmptyLines(text: string): string[] {
@@ -85,7 +87,16 @@ export function degradationOf(text: string, peers: readonly string[] = []): Degr
   else if (lengthCollapse >= 0.3) confidence += 0.1;
   if (peerMean === 0) confidence *= 0.6;
 
-  return { weak: true, confidence: Math.min(1, Number(confidence.toFixed(2))), basis, caveat: WEAK_CAVEAT, repeatRatio, tailLoop, lengthCollapse };
+  return {
+    weak: true,
+    confidence: Math.min(1, Number(confidence.toFixed(2))),
+    basis,
+    caveat: WEAK_CAVEAT,
+    repeatRatio,
+    tailLoop,
+    lengthCollapse,
+    flagged: confidence > 0,
+  };
 }
 
 /* ------------------------------------------------------------------ F9 指纹 */
@@ -188,5 +199,95 @@ export function fingerprintOf(input: FingerprintInput): ModelFingerprint {
     features,
     verdict: deviations.length === 0 ? 'no-anomaly' : 'suspect-degraded',
     deviations,
+  };
+}
+
+/* ------------------------------------------------------- 一次跑测的整体弱信号 */
+
+/**
+ * 该次采样是否被判为拒答（只看 refusal judge 自己的检查，不从正文猜）。
+ * 拒答题命中了标记 → 是拒答；不该拒答的题反而拒了 → 也是拒答。
+ */
+export function isRefusalSample(checks: readonly JudgeCheck[]): boolean {
+  return checks.some((c) => (c.name === 'refusal.marker' && c.pass) || (c.name === 'refusal.no-false-refusal' && !c.pass));
+}
+
+/** 一条参与弱信号判定的采样：判定结果用来数拒答率，正文用来算退化。 */
+export interface SignalSample {
+  response: ModelResponse;
+  checks?: readonly JudgeCheck[];
+}
+
+/** 一次跑测的退化汇总（F10）：只报「有几条命中」，不定性。 */
+export interface DegradationSummary extends WeakSignal {
+  /** 命中退化信号的采样数。 */
+  flagged: number;
+  /** 参与判定的采样总数。 */
+  samples: number;
+  /** confidence 最高的一条；没有采样时为 undefined。 */
+  worst?: DegradationSignal;
+}
+
+export interface RunSignalInput {
+  /** 按题分组的有效采样（传输失败的采样不参与），顺序不影响结果。 */
+  samplesByQuestion: readonly (readonly SignalSample[])[];
+  /** 该端点历史指纹；没有就不传 —— 此时 verdict 只能是 insufficient-data。 */
+  baseline?: FingerprintFeatures;
+}
+
+export interface RunSignals {
+  fingerprint: ModelFingerprint;
+  degradation: DegradationSummary;
+}
+
+function degradationSummaryOf(groups: readonly (readonly SignalSample[])[]): DegradationSummary {
+  let flagged = 0;
+  let samples = 0;
+  let worst: DegradationSignal | undefined;
+  for (const group of groups) {
+    const texts = group.map((s) => s.response.text ?? '');
+    texts.forEach((text, index) => {
+      samples += 1;
+      const peers = texts.filter((_, i) => i !== index);
+      const signal = degradationOf(text, peers);
+      if (signal.flagged) flagged += 1;
+      if (!worst || signal.confidence > worst.confidence) worst = signal;
+    });
+  }
+  if (!worst) {
+    return {
+      weak: true,
+      confidence: 0,
+      basis: ['本次没有可判定的采样'],
+      caveat: WEAK_CAVEAT,
+      flagged: 0,
+      samples: 0,
+    };
+  }
+  return {
+    weak: true,
+    confidence: worst.confidence,
+    basis: [`${flagged}/${samples} 条采样命中退化信号`, ...worst.basis],
+    caveat: WEAK_CAVEAT,
+    flagged,
+    samples,
+    worst,
+  };
+}
+
+/**
+ * 一次跑测的 F9 + F10 汇总。web / api 只调这一个函数，特征计算只有这里一份（D1）。
+ * 没有 baseline 时指纹 verdict 恒为 `insufficient-data`，绝不从单次形态猜「降智」。
+ */
+export function runSignalsOf(input: RunSignalInput): RunSignals {
+  const flat = input.samplesByQuestion.flat();
+  const refusals = flat.filter((s) => isRefusalSample(s.checks ?? [])).length;
+  return {
+    fingerprint: fingerprintOf({
+      responses: flat.map((s) => s.response),
+      refusals,
+      ...(input.baseline ? { baseline: input.baseline } : {}),
+    }),
+    degradation: degradationSummaryOf(input.samplesByQuestion),
   };
 }
