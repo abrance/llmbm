@@ -366,20 +366,38 @@ export async function fetchModels(ep: EndpointConfig, fetchImpl: typeof fetch = 
   return requestModels(request, adapter, fetchImpl);
 }
 
-/** 连通性测试：发一个最短的 chat 请求，返回耗时；失败抛错。 */
+/**
+ * 连通性测试：发一个最短的 chat 请求，返回耗时；失败抛错。
+ *
+ * 判定口径按「端点有没有真的干活」而不是「有没有正文」：推理模型（R1 / o1 / QwQ /
+ * gemini thinking）会把 token 全花在 reasoning 上，正文此时就是空的；只认 text 会把
+ * 一个完全健康的端点判成失败。maxTokens 也给够余量，8 个 token 连思考的开头都放不下。
+ */
 export async function pingEndpoint(
   ep: EndpointConfig,
   fetchImpl: typeof fetch = fetch,
-): Promise<{ latencyMs: number; sample: string }> {
+): Promise<{ latencyMs: number; sample: string; reasoningOnly?: boolean }> {
   const response = await execute(
     ep,
     [{ role: 'user', content: '只回复 ok' }],
-    { signal: new AbortController().signal, timeoutMs: 15000, maxTokens: 8 },
+    { signal: new AbortController().signal, timeoutMs: 30000, maxTokens: 64 },
     fetchImpl,
   );
   if (response.error) throw new Error(response.error);
-  if (!response.text && !(response.toolCalls && response.toolCalls.length > 0)) {
-    throw new Error('响应没有正文');
+  const latencyMs = response.latencyMs ?? 0;
+
+  if (response.text) return { latencyMs, sample: response.text.slice(0, 80) };
+  if (response.toolCalls && response.toolCalls.length > 0) {
+    return { latencyMs, sample: `[工具调用] ${response.toolCalls[0]?.name ?? ''}` };
   }
-  return { latencyMs: response.latencyMs ?? 0, sample: response.text.slice(0, 80) };
+  if (response.reasoning) {
+    return { latencyMs, sample: `[仅推理] ${response.reasoning.slice(0, 60)}`, reasoningOnly: true };
+  }
+
+  const finish = response.finishReason ?? '缺失';
+  const completion = response.usage?.completionTokens;
+  throw new Error(
+    `HTTP ${response.httpStatus ?? '?'} 拿到了响应但正文/推理/工具调用全为空` +
+      `（finish_reason=${finish}${completion !== undefined ? `，completion_tokens=${completion}` : ''}）`,
+  );
 }

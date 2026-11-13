@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import type { EndpointConfig, ToolSpec } from '@llmbm/core';
 import type { BankQuestion } from '../data/bank.ts';
-import { chatOnce, fetchModels, prepareChatRequest, tokensPerSecond } from './transport.ts';
+import { chatOnce, fetchModels, pingEndpoint, prepareChatRequest, tokensPerSecond } from './transport.ts';
 
 const OPENAI: EndpointConfig = {
   baseUrl: 'https://relay.example.com',
@@ -296,4 +296,31 @@ test('工具题：gemini 由 core 映射为 functionDeclarations', () => {
   const { request } = prepareChatRequest(gemini, [{ role: 'user', content: '查天气' }], { tools });
   const body = JSON.parse(request.body) as Record<string, unknown>;
   assert.deepEqual(body['tools'], [{ functionDeclarations: [{ name: 'get_weather', parameters: { type: 'object' } }] }]);
+});
+
+test('连通性测试：推理模型把 token 全用在 reasoning 上，不应判「响应没有正文」', async () => {
+  const response = jsonResponse({
+    choices: [
+      {
+        message: { content: '', reasoning_content: '用户在让我只回复 ok，我先想一下' },
+        finish_reason: 'length',
+      },
+    ],
+    usage: { prompt_tokens: 6, completion_tokens: 8 },
+  });
+
+  const out = await pingEndpoint(OPENAI, fetchOnce(response));
+  assert.match(out.sample, /推理/);
+  assert.equal(out.latencyMs >= 0, true);
+});
+
+test('连通性测试：正文真的为空时仍要失败，并带上 finish_reason', async () => {
+  const response = jsonResponse({
+    choices: [{ message: { content: '' }, finish_reason: 'stop' }],
+  });
+
+  await assert.rejects(
+    () => pingEndpoint(OPENAI, fetchOnce(response)),
+    (err: Error) => /正文\/推理\/工具调用全为空/.test(err.message) && /finish_reason=stop/.test(err.message),
+  );
 });

@@ -34,6 +34,10 @@
   任何客户端都无法绕过勾选把分数公开到榜单。
 
 ### 修复
+- **连通性测试误判「响应没有正文」**：`pingEndpoint` 原来只认正文，且只给 8 个 token —— 推理模型
+  （R1 / o1 / QwQ / gemini thinking）把 token 全花在 reasoning 上时正文必然为空，一个完全健康的端点被判失败。
+  现在正文 / 推理 / 工具调用任一非空即算连通（推理-only 会标注「仅推理」），`max_tokens` 给到 64、
+  超时给到 30s；三者全空时仍判失败，但错误里带上 `finish_reason` 与 `completion_tokens`，能直接看出是网关空转。
 - `judge/refusal`：否定子句里的危险词不再算「给了做法」。判定改为先剔除引号内容、按强句界切子句，
   只在**肯定形式**出现的子句里才算命中（命中处前 40 字内有否定/澄清标记且其后无转折词 → 视为否定式提及）。
   `refusal.no-danger` 与 `judge/conflict` 共用 `rules/shared.ts` 同一份子句/否定判定，不再各写一套。

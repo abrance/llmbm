@@ -69,7 +69,10 @@ export function ConnectPage() {
     setPing(undefined);
     try {
       const result = await pingEndpoint({ ...values, model: values.model });
-      setPing(`连通正常 · ${result.latencyMs}ms · 返回「${result.sample || '（空）'}」`);
+      setPing(
+        `连通正常 · ${result.latencyMs}ms · 返回「${result.sample || '（空）'}」` +
+          (result.reasoningOnly ? '（推理模型：本次只有推理、没有正文，端点本身正常）' : ''),
+      );
       message.success('连通性测试通过');
     } catch (err) {
       setPing(`失败：${(err as Error).message}`);
