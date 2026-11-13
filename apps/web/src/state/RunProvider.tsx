@@ -14,6 +14,7 @@ import { BANK_VERSION, QUESTION_BANK, type BankQuestion } from '../data/bank.js'
 import { deleteCheckpoint, latestCheckpoint, latestRun, saveCheckpoint, saveRun } from '../lib/db.js';
 import { domainOf } from '../lib/transport.js';
 import { failedIds } from '../lib/metrics.js';
+import { signalsOf } from '../lib/signals.js';
 import type {
   EndpointSnapshot,
   ProgressState,
@@ -210,8 +211,7 @@ export function RunProvider({ children }: { children: ReactNode }) {
             })
           : msg.report;
 
-        const record: RunRecord = {
-          runId: cfg.runId,
+        const record: RunRecord = {          runId: cfg.runId,
           seed: cfg.seed,
           samples: cfg.samples,
           groups: cfg.groups,
@@ -224,6 +224,9 @@ export function RunProvider({ children }: { children: ReactNode }) {
           expected: cfg.expected,
           results: allResults,
           report,
+          // F9/F10 跟着「合并后的全量结果」走：补测只跑了失败题，直接用 msg.signals
+          // 会只覆盖那几道题，所以合并路径重算一次（口径仍在 core）。
+          ...(merge ? signalsOf(allResults) : msg.signals),
           injectFlaky: cfg.injectFlaky,
           ...(msg.abortReason ? { abortReason: msg.abortReason } : {}),
           ...(msg.notices ? { notices: msg.notices } : {}),

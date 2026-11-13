@@ -16,6 +16,7 @@ import {
 import type { BankQuestion } from '../data/bank.js';
 import { FailureGuard, toleratedNotices } from './abort.js';
 import { chatOnce, probeEndpoint } from './transport.js';
+import { signalsOf } from './signals.js';
 import { repeatRatio } from './metrics.js';
 import type { QuestionResult, SampleResult, WorkerEvent, WorkerRequest, WorkerStart } from './types.js';
 
@@ -151,6 +152,7 @@ async function run(start: WorkerStart): Promise<void> {
       type: 'done',
       report,
       results,
+      signals: signalsOf(results),
       cancelled: cancelled || abortReason !== undefined,
       ...(abortReason ? { abortReason } : {}),
       ...(notices.length > 0 ? { notices } : {}),
