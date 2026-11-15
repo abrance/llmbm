@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { JUDGE_KINDS, buildMessages, summarizeQuestion } from '@llmbm/core';
-import { BANK_VERSION, GROUP_ORDER, QUESTION_BANK } from './bank.ts';
+import { BANK_VERSION, DEFAULT_GROUPS, GROUP_ORDER, QUESTION_BANK } from './bank.ts';
 
 test('题库文件可加载，版本与题目数符合本次交付', () => {
   assert.match(BANK_VERSION, /^qb-/);
@@ -28,16 +28,24 @@ test('每类 judge 至少 2 题（正例 + 难点各一）', () => {
   }
 });
 
-test('题目 id 唯一、必填字段齐全、分数权重为正', () => {
+test('题目 id 唯一、必填字段齐全、分数权重非负', () => {
   const ids = new Set<string>();
   for (const q of QUESTION_BANK) {
     assert.ok(!ids.has(q.id), `重复 id: ${q.id}`);
     ids.add(q.id);
     assert.ok(q.prompt.trim().length > 0, `${q.id} 没有 prompt`);
     assert.ok((q.timeoutMs ?? 0) > 0, `${q.id} 没有超时`);
-    assert.ok((q.weight ?? 1) > 0, `${q.id} 权重非法`);
+    assert.ok((q.weight ?? 1) >= 0, `${q.id} 权重非法`);
   }
   assert.ok(QUESTION_BANK.some((q) => q.core === true), '至少要有 core 题');
+});
+
+test('timeout 组只观测不评分：全部 weight=0，且默认不勾选', () => {
+  const timeout = QUESTION_BANK.filter((q) => q.group === 'timeout');
+  assert.ok(timeout.length >= 5, `timeout 组只有 ${timeout.length} 题`);
+  for (const q of timeout) assert.equal(q.weight, 0, `${q.id} 应 weight=0（只做传输观测，不进能力分）`);
+  assert.ok(!DEFAULT_GROUPS.includes('timeout'), 'timeout 组不能进默认勾选分组');
+  assert.deepEqual(DEFAULT_GROUPS, GROUP_ORDER.filter((group) => group !== 'timeout'));
 });
 
 test('每题都有 description（用例说明），供题库页与证据链展示', () => {

@@ -85,7 +85,7 @@ export function LatencyPanel({ results }: { results: readonly QuestionResult[] }
         ) : (
           <Typography.Text type="secondary">本次没有运行「超时与响应时延」分组，无法给出该类结论；下次跑测勾选该分组即可。</Typography.Text>
         )}
-        {report.questions.some((question) => question.questionId === 'timeout-concurrency-001') ? (
+        {report.questions.some((question) => question.questionId === 'timeout-concurrency-review-001') ? (
           <Typography.Text type="secondary">
             并发下的时延放大是人工复核项：当前编排按题串行采样，没有并发测量能力，不把串行数据当并发结论。
           </Typography.Text>
