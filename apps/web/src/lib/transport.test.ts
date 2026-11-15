@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import type { EndpointConfig, ToolSpec } from '@llmbm/core';
+import { classifyTimeout } from '@llmbm/core';
 import type { BankQuestion } from '../data/bank.ts';
 import {
   chatOnce,
@@ -484,6 +485,37 @@ test('首字前挂起：只在没收到任何字节时才重试一次，attempt 
     out.attemptLog?.map((a) => a.outcome),
     ['timeout', 'timeout'],
   );
+});
+
+test('连不上就超时：不带 phase/chunks，归因落 connect 而不是「首字前」', async () => {
+  // 模拟 DNS/TLS/连不上：fetch 一直不返回，直到 abort。
+  const fetchStub = (async (_url: string, init: RequestInit) => {
+    await new Promise((_resolve, reject) => {
+      init.signal?.addEventListener('abort', () => reject(new DOMException('aborted', 'AbortError')), {
+        once: true,
+      });
+    });
+  }) as unknown as typeof fetch;
+
+  const out = await chatOnce(OPENAI, question({ id: 'timeout-hang-002', timeoutMs: 60 }), options(), fetchStub);
+
+  assert.match(String(out.error), /请求超时/);
+  assert.equal(out.phase, undefined);
+  assert.equal(out.chunks, undefined);
+  assert.equal(classifyTimeout({ error: out.error, httpStatus: out.httpStatus, phase: out.phase }), 'connect');
+});
+
+test('首字帧被网络分片切开：仍然认得出首字', async () => {
+  const res = timedSse([
+    { text: 'data: {"choices":[{"delta":{"cont' },
+    { text: 'ent":"你好"}}]}\n\n', delayMs: 40 },
+    { text: SSE_DONE },
+  ]);
+  const out = await chatOnce(OPENAI, question(), options(), fetchOnce(res));
+
+  assert.equal(out.error, undefined);
+  assert.equal(out.phase, 'done');
+  assert.equal(typeof out.ttftMs, 'number');
 });
 
 test('心跳与空 role 帧不算首字：TTFT 从第一个正文增量算起', async () => {

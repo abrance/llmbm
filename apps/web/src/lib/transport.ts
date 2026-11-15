@@ -150,13 +150,13 @@ function sleep(ms: number, signal: AbortSignal): Promise<void> {
   });
 }
 
-function retryDelay(res: Response, attempt: number): number {
+/** 有 Retry-After 就按它（封顶 5s）；没有返回 undefined，由调用方按 attempt 做指数退避。 */
+function retryDelay(res: Response): number | undefined {
   const header = res.headers.get('retry-after');
-  if (header) {
-    const seconds = Number(header);
-    if (Number.isFinite(seconds) && seconds >= 0) return Math.min(seconds * 1000, 5000);
-  }
-  return 300 * 2 ** attempt;
+  if (!header) return undefined;
+  const seconds = Number(header);
+  if (Number.isFinite(seconds) && seconds >= 0) return Math.min(seconds * 1000, 5000);
+  return undefined;
 }
 
 interface ExecuteOptions {
@@ -234,6 +234,8 @@ async function readWithTiming(
   const reader = body.getReader();
   const decoder = new TextDecoder();
   const parts: string[] = [];
+  // 正文帧可能被网络分片切开：匹配时带上上一片尾部，否则首字被判晚或漏判。
+  let carry = '';
   try {
     for (;;) {
       const { done, value } = await readChunk(reader, signal);
@@ -241,7 +243,9 @@ async function readWithTiming(
       progress.chunks += 1;
       const chunk = decoder.decode(value, { stream: true });
       parts.push(chunk);
-      if (CONTENT_FRAME.test(chunk)) {
+      const probe = carry + chunk;
+      carry = probe.slice(-64);
+      if (CONTENT_FRAME.test(probe)) {
         const elapsed = Math.round(performance.now() - startedAt);
         if (progress.ttftMs === undefined) progress.ttftMs = elapsed;
         progress.lastChunkAtMs = elapsed;
@@ -311,6 +315,8 @@ async function attemptOnce(
 
   const started = performance.now();
   const progress: ReadProgress = { chunks: 0, phase: 'before-first-byte' };
+  // fetch 一返回就说明连接与响应头都有了；失败时据此区分「连不上」和「连上没出字」。
+  let connected = false;
   const elapsed = () => Math.round(performance.now() - started);
   try {
     const res = await fetchImpl(request.url, {
@@ -319,6 +325,7 @@ async function attemptOnce(
       body: request.body,
       signal: controller.signal,
     });
+    connected = true;
     const latencyMs = elapsed();
 
     if (!res.ok) {
@@ -326,7 +333,7 @@ async function attemptOnce(
       return {
         retryable: isRetryable(res.status),
         timedOut: false,
-        retryAfterMs: retryDelay(res, 0),
+        retryAfterMs: retryDelay(res),
         response: {
           text: '',
           error: `HTTP ${res.status}${rawText ? `：${rawText.slice(0, 300)}` : ''}`,
@@ -400,14 +407,25 @@ async function attemptOnce(
         // 已收到正文再超时的请求不重试：同一预算下再来一次只会让用户多等一倍，正文早已残缺。
         retryable: progress.phase === 'before-first-byte',
         timedOut: true,
-        response: { text: '', error: `请求超时（${options.timeoutMs}ms）`, latencyMs, ...progressOf(progress) },
+        // 没连上就不带 phase/chunks：core 据此归 connect，而不是「连上了没出字」。
+        response: {
+          text: '',
+          error: `请求超时（${options.timeoutMs}ms）`,
+          latencyMs,
+          ...(connected ? progressOf(progress) : {}),
+        },
       };
     }
     const message = err instanceof Error ? err.message : String(err);
     return {
       retryable: true,
       timedOut: false,
-      response: { text: '', error: `网络错误：${message}`, latencyMs, ...progressOf(progress) },
+      response: {
+        text: '',
+        error: `网络错误：${message}`,
+        latencyMs,
+        ...(connected ? progressOf(progress) : {}),
+      },
     };
   } finally {
     clearTimeout(timer);

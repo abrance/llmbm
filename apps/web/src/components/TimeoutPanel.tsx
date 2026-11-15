@@ -58,7 +58,7 @@ export function TimeoutPanel({ run }: { run: RunRecord }) {
           <Typography.Text>
             最多的是「{TIMEOUT_CLASS_LABEL[top[0]]}」。
             {top[0] === 'rate-limit' ? '先降并发或换时段，再判断能力分。' : null}
-            {top[0] === 'connect' ? '先检查网络、代理与 Base URL 是否可达。' : null}
+            {top[0] === 'connect' ? '先检查网络、代理与 Base URL 是否可达，以及端点是否迟迟不回响应。' : null}
             {top[0] === 'first-token' ? '端点排队或慢启动，优先看首字延迟而不是总耗时。' : null}
             {top[0] === 'mid-stream' ? '流在完成标记前断掉，网关/中转可能截断了长输出。' : null}
             {top[0] === 'gateway' ? '上游网关错误，多为中转站自身不稳定。' : null}
