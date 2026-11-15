@@ -8,12 +8,13 @@
 | 路径 | 所有者 | 内容 |
 |---|---|---|
 | `packages/core/src/judge/registry.ts`、`judge/index.ts`、`scoring/**`、`fingerprint/**`、`aggregate.ts`、`sampling/**`、`types.ts`、`index.ts` | mike | 判分/聚合/抽样/弱信号的骨架与契约 |
+| `packages/core/src/fingerprint/model-trace/**` | mike | ModelTrace 探针挑战、参考库加载、排名打分、闭集概率与 replay 回归（v0.4，纯函数；含精简参考库 JSON） |
 | `packages/core/src/judge/rules/**` | pit | 各判定规则的实现与正反例单测 |
-| `packages/core/src/adapters/**` | pit | openai / anthropic / gemini 请求体与 SSE 归一化 |
+| `packages/core/src/adapters/**` | pit | openai / anthropic / gemini 请求体与 SSE 归一化（只放协议映射） |
 | `packages/core/src/prompt.ts` | sor | 题库条目 → 请求消息的组装规则（`buildMessages` / `summarizeQuestion`），唯一实现 |
 | `packages/core/src/data/**` | wof | 题库 JSON、分组、题目设计 |
-| `apps/web/**` | wof | React + Vite + antd 前端 |
-| `apps/api/**`、`.github/**`、`deploy/**`、`scripts/**`、`README.md` | pit | Fastify 代理/社区接口、CI、Dockerfile、脚本 |
+| `apps/web/**` | wof | React + Vite + antd 前端；含超时/时延归因（`lib/latency.ts` 纯函数 + 面板）与 ModelTrace 结果卡片 |
+| `apps/api/**`、`.github/**`、`deploy/**`、`scripts/**`、`README.md` | pit | Fastify 代理/社区接口、CI、Dockerfile、脚本（含 `scripts/build-modeltrace-bank.mjs`） |
 | 根 `package.json` / `tsconfig*` / 本文件 | mike | 工作区与构建基线 |
 
 跨目录改动：先在本群说，改的人只提一个 MR，不动别人的目录，需要别人配合就在 MR 里 @。
@@ -146,7 +147,21 @@ npm run verify        # typecheck + core 单测
   后合的人先 `git rebase main`，冲突只改自己目录。
 - 合入判据：`npm run verify` 绿 + mike 读完 diff + 无跨目录改动。
 
-## 7. 合入标准（mike 把关，2026-11-12 定）
+## 7. v0.4 增补：主动探针 / 排名参考库 / 超时归因（2026-11-16）
+
+v0.4 一个版本发 **0.4.0**，三件事同版：参考库 + 排名、ModelTrace 探针、超时类用例与归因。
+细节契约与验收口径见 `docs/v04-scope.md`，要点：
+
+- **探针与排名是附加结论**：只出现在 `RunRecord.modelTrace`，`aggregate` 与 `judge` 都不读它，永远不进能力分。
+- **参考库**只提交精简库（约 1.05MB，gzip 472KB），`provenance` 记录 `source_repo / source_commit / source_sha256 / license / built_at`；
+  原始 14MB `unified_bank.json` 不入库。`node scripts/build-modeltrace-bank.mjs --check` 必须能从源重建同一 sha256。
+- **replay 回归是硬门槛**：用参考库自带的真实样本（`replay-fixture.json`，70 模型 × 3 条）回放，top-1 命中率 ≥95%；
+  低于阈值直接拒合。只测函数不测数据不算通过。
+- **超时不判分**：超时/时延归因是 `apps/web/src/lib/latency.ts` 的纯展示统计（`isTimeoutError` / 分位数 / verdict），只在 `response.error` 存在时计入；不得把超时写进 judge 或能力分。超时类用例是题库新分组 `group=timeout`（wof 维护），单独勾选即可只跑这一类。
+- **MIT**：lm-detector / ModelTrace 均为 MIT（Copyright (c) 2026 xqy2006），`THIRD_PARTY_NOTICES.md` 保留声明与来源 URL。
+- **默认关闭**：探针默认关（三条约 300 个整数的长请求有额外耗时与费用），用户显式打开才跑。
+
+## 8. 合入标准（mike 把关，2026-11-12 定）
 
 **硬门槛**：`npm run verify`（typecheck + lint + test）全绿，且 `test` 跑的是**干净编译**的 dist
 （`packages/core` 的 `build` 先 `rm -rf dist`：`tsc` 不清旧产物，跨分支残留会让测试数虚高）。
