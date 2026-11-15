@@ -35,9 +35,11 @@ v0.3.5 已把「能力测评 + F9/F10 弱信号」做稳。v0.4 只做三件事�
 - 超时类用例：题库新增 `timeout` 分组（wof 维护 `packages/core/src/data/questions.json`），题目自带
   `timeoutMs` 预算与「首字慢 / 挂起 / 流式中段卡死 / 滴流 / 长输出超预算 / 短问答超时」标签；
   跑测页可单独勾选该组，只跑这一类。
-- 归因是**展示层纯函数**：`apps/web/src/lib/latency.ts` 的 `isTimeoutError`（只认 transport 的
-  `请求超时（Nms）` 文案）、nearest-rank 分位数与 `verdict`（all-timeout / partial-timeout /
-  slower-than-peers / normal）；只在 `response.error` 存在时计入。
+- 归因分两层，**判定与分位数只有 core 一份**：`packages/core/src/timeout.ts` 的
+  `classifyTimeout` / `percentile` / `latencyStats` / `summarizeTransport`（超时率分母 = 已发起且非用户取消，
+  p50/p95 只统计成功完成）。web 侧 `apps/web/src/lib/latency.ts` 只组装 `verdict`
+  （all-timeout / partial-timeout / slower-than-peers / normal）与文案，`timeoutReport.ts` 只做汇总与导出段落，
+  不再自带阈值或第二份 `isTimeoutError`/分位数；只在 `response.error` 存在时计入。
 - **不进 judge / 能力分**：超时仍按 D5 记为传输失败，从能力分聚合剔除；归因只进结果页卡片与导出。
 
 ### 3.2 ModelTrace 探针
