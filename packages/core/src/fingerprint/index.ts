@@ -291,3 +291,5 @@ export function runSignalsOf(input: RunSignalInput): RunSignals {
     degradation: degradationSummaryOf(input.samplesByQuestion),
   };
 }
+
+export * from './model-trace/index.js';

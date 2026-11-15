@@ -13,6 +13,7 @@ export interface ModelTraceBank extends ScoringBank {
   provenance: {
     built_at: string | null;
     source_repo: string;
+    source_url: string;
     source_commit: string | null;
     source_sha256: string | null;
     source_schema?: string;

@@ -1,7 +1,7 @@
 # ModelTrace 参考库构建（构建脚本说明）
 
 `scripts/build-modeltrace-bank.mjs` 从 lm-detector 的原始 `unified_bank.json` 抽取「指纹排名打分必需字段」，
-生成入库用的精简库 `packages/core/src/adapters/model-trace/model-trace-bank.json`（约 1MB）。
+生成入库用的精简库 `packages/core/src/fingerprint/model-trace/model-trace-bank.json`（约 1MB）。
 
 - 上游：https://github.com/ikaleio/lm-detector （MIT, Copyright (c) 2026 xqy2006）
 - 原始 14MB 库**不入库**；仓库只保留精简库，头部 `provenance` 记录来源 commit / sha256 / license。

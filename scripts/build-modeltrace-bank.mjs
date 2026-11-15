@@ -8,7 +8,7 @@
  * 原理： xqy2006/ModelTrace
  *
  * 全程不联网：只读本地已有的原始库。同一份输入两次运行，输出逐字节一致（纯抽取，不重算）。
- * 打分口径见 packages/core/src/adapters/model-trace/scoring.ts。
+ * 打分口径见 packages/core/src/fingerprint/model-trace/scoring.ts。
  *
  * 用法：
  *   node scripts/build-modeltrace-bank.mjs                 # 用默认原始库路径
@@ -27,7 +27,7 @@ import { fileURLToPath } from 'node:url';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = resolve(HERE, '..');
-const OUT_PATH = resolve(REPO_ROOT, 'packages/core/src/adapters/model-trace/model-trace-bank.json');
+const OUT_PATH = resolve(REPO_ROOT, 'packages/core/src/fingerprint/model-trace/model-trace-bank.json');
 
 const DEFAULT_SOURCES = [
   process.env.MODELTRACE_SRC,
@@ -102,6 +102,7 @@ function extract(raw) {
     provenance: {
       built_at: raw.built_at,
       source_repo: SOURCE_REPO,
+      source_url: SOURCE_REPO,
       source_commit: null, // 由 build() 填入
       source_sha256: null, // 由 build() 填入
       source_schema: raw.schema,

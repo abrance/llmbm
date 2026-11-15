@@ -9,7 +9,6 @@ import { openaiAdapter } from './openai.js';
 export { openaiAdapter, anthropicAdapter, geminiAdapter };
 export { createStreamAccumulator, accumulateSse } from './stream.js';
 export type { StreamAccumulator } from './stream.js';
-export * from './model-trace/index.js';
 
 const ADAPTERS: Record<Protocol, Adapter> = {
   openai: openaiAdapter,

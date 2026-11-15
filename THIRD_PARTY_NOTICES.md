@@ -11,9 +11,9 @@
 
 本仓库包含的改编/派生内容：
 
-1. `packages/core/src/adapters/model-trace/scoring.ts`
+1. `packages/core/src/fingerprint/model-trace/scoring.ts`
    —— 由 lm-detector 的 `shared/fingerprint-core.js` 忠实移植（TypeScript 重写，逻辑等价）。
-2. `packages/core/src/adapters/model-trace/model-trace-bank.json`
+2. `packages/core/src/fingerprint/model-trace/model-trace-bank.json`
    —— 由 lm-detector 的 `data/unified_bank.json` 抽取「打分必需字段」生成的精简参考库
    （源仓库 commit 与 sha256 见该文件头部 `provenance`）。
 

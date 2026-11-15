@@ -10,6 +10,8 @@ test('加载精简库：70 个模型，provenance 带 MIT 版权与来源 sha256
   assert.equal(bank.provenance.license, 'MIT');
   assert.equal(bank.provenance.license_copyright, 'Copyright (c) 2026 xqy2006');
   assert.match(bank.provenance.source_repo, /lm-detector/);
+  assert.equal(bank.provenance.source_url, 'https://github.com/ikaleio/lm-detector');
+  assert.equal(typeof bank.provenance.built_at, 'string');
   assert.equal(typeof bank.provenance.source_sha256, 'string');
   assert.equal((bank.provenance.source_sha256 ?? '').length, 64);
   assert.ok(bankModels(bank).every((m) => m.id && m.family));
