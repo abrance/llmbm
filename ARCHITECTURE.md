@@ -157,7 +157,7 @@ v0.4 一个版本发 **0.4.0**，三件事同版：参考库 + 排名、ModelTra
   原始 14MB `unified_bank.json` 不入库。`node scripts/build-modeltrace-bank.mjs --check` 必须能从源重建同一 sha256。
 - **replay 回归是硬门槛**：用参考库自带的真实样本（`replay-fixture.json`，70 模型 × 3 条）回放，top-1 命中率 ≥95%；
   低于阈值直接拒合。只测函数不测数据不算通过。
-- **超时不判分**：超时/时延归因是 `apps/web/src/lib/latency.ts` 的纯展示统计（`isTimeoutError` / 分位数 / verdict），只在 `response.error` 存在时计入；不得把超时写进 judge 或能力分。超时类用例是题库新分组 `group=timeout`（wof 维护），单独勾选即可只跑这一类。
+- **超时不判分**：超时/时延归因是 `apps/web/src/lib/latency.ts` 的纯展示统计（`isTimeoutError` / 分位数 / verdict），只在 `response.error` 存在时计入；不得把超时写进 judge 或能力分。超时类用例是题库新分组 `group=timeout`（wof 维护），**weight=0**：`aggregate` 对 weight=0 的题只记 transport、不进维度分/能力分/题级统计；跑测页默认不勾选该组，用户显式打开才跑。
 - **MIT**：lm-detector / ModelTrace 均为 MIT（Copyright (c) 2026 xqy2006），`THIRD_PARTY_NOTICES.md` 保留声明与来源 URL。
 - **默认关闭**：探针默认关（三条约 300 个整数的长请求有额外耗时与费用），用户显式打开才跑。
 

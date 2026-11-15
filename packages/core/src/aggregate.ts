@@ -84,12 +84,15 @@ export function aggregate({ scores, expectedQuestions, weights, samplesPerQuesti
     transportErrors += list.length - valid.length;
     totalSamples += list.length;
     validSamples += valid.length;
+    const weight = weights?.[questionId] ?? 1;
+    // weight=0：只观测不评分（如 group=timeout 的超时类用例）。上面已把传输失败计入 transport，
+    // 但不进维度分、能力分与题级 pass/fail/pending 统计 —— 否则又变成「超时扣能力分」。
+    if (weight === 0) continue;
     if (valid.length === 0) {
       pending += 1;
       continue;
     }
     const stat = sampleStat(valid.map((s) => s.score));
-    const weight = weights?.[questionId] ?? 1;
     const first = valid[0] as QuestionScore;
     const dim = dimMap.get(first.group) ?? { weighted: 0, weight: 0, halfWidths: [] };
     dim.weighted += stat.mean * weight;
