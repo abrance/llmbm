@@ -216,6 +216,14 @@ export function ResultPage() {
         />
       ) : null}
 
+      {report.total.n === 0 ? (
+        <Alert
+          type="info"
+          showIcon
+          message="本次没有可评分的题目，能力分不适用"
+          description="只跑了「只观测不评分」的分组（如超时与响应时延，weight=0），它的采样不进能力分。时延与传输结论见下方「超时与响应时延」；要拿能力分，请回跑测页至少勾选一个评分类分组。"
+        />
+      ) : (
       <Card variant="borderless" className="panel score-hero">
         <Row gutter={24} align="middle">
           <Col xs={24} md={8}>
@@ -291,6 +299,7 @@ export function ResultPage() {
           </Col>
         </Row>
       </Card>
+      )}
 
       <Card variant="borderless" className="panel">
         <div className="section-head">
@@ -299,10 +308,15 @@ export function ResultPage() {
             <p>按题均值加权；同一维度内题数更多不会自动放大权重。</p>
           </div>
           <Typography.Text type="secondary">
-            {report.total.mean.toFixed(2)} ± {report.total.halfWidth.toFixed(2)}（{report.total.n} 题，有效采样 {sampleCounts.valid}/{sampleCounts.total}）
+            {report.total.n === 0
+              ? '本次没有评分类题目（只跑了只观测的分组）'
+              : `${report.total.mean.toFixed(2)} ± ${report.total.halfWidth.toFixed(2)}（${report.total.n} 题，有效采样 ${sampleCounts.valid}/${sampleCounts.total}）`}
           </Typography.Text>
         </div>
         <Space direction="vertical" size={14} style={{ width: '100%' }}>
+          {report.dimensions.length === 0 ? (
+            <Typography.Text type="secondary">本次没有可评分的维度。</Typography.Text>
+          ) : null}
           {report.dimensions.map((dim) => (
             <div className="dim-row" key={dim.dimension}>
               <div className="dim-name">{groupLabel(dim.dimension)}</div>
@@ -325,8 +339,16 @@ export function ResultPage() {
       <Row gutter={20}>
         <Col xs={24} md={8}>
           <Card variant="borderless" className="panel stat-card">
-            <Statistic title="能力分" value={report.total.mean} precision={1} suffix="/ 100" valueStyle={{ color: scoreColor(report.total.mean) }} />
-            <Typography.Text type="secondary">区间 ± {report.total.halfWidth.toFixed(1)}</Typography.Text>
+            <Statistic
+              title="能力分"
+              value={report.total.n === 0 ? '不适用' : report.total.mean}
+              precision={report.total.n === 0 ? undefined : 1}
+              suffix={report.total.n === 0 ? undefined : '/ 100'}
+              valueStyle={{ color: report.total.n === 0 ? undefined : scoreColor(report.total.mean) }}
+            />
+            <Typography.Text type="secondary">
+              {report.total.n === 0 ? '本次只跑了只观测的分组' : `区间 ± ${report.total.halfWidth.toFixed(1)}`}
+            </Typography.Text>
           </Card>
         </Col>
         <Col xs={24} md={8}>
