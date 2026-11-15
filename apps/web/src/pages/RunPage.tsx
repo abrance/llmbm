@@ -54,6 +54,7 @@ export function RunPage() {
   const [samples, setSamples] = useState(3);
   const [includeUnavailable, setIncludeUnavailable] = useState(false);
   const [injectFlaky, setInjectFlaky] = useState(false);
+  const [modelTraceProbe, setModelTraceProbe] = useState(false);
   const [now, setNow] = useState(Date.now());
   const prevPhase = useRef(phase);
 
@@ -121,6 +122,7 @@ export function RunPage() {
       samples,
       includeUnavailable,
       injectFlaky,
+      modelTrace: modelTraceProbe,
     });
   }
 
@@ -283,6 +285,10 @@ export function RunPage() {
                       <span>故障注入（演示探针）</span>
                     </div>
                   ) : null}
+                  <div className="switch-row">
+                    <Switch checked={modelTraceProbe} onChange={setModelTraceProbe} size="small" />
+                    <span>ModelTrace 指纹探针（额外 3 条长请求，默认关）</span>
+                  </div>
                 </Col>
               </Row>
             </SectionCard>
@@ -329,7 +335,7 @@ export function RunPage() {
               </div>
               <div className="plan-row">
                 <span>请求</span>
-                <strong>{plannedSamples} 次</strong>
+                <strong>{plannedSamples} 次{modelTraceProbe ? ' + 3 条探针' : ''}</strong>
               </div>
               <div className="plan-row">
                 <span>按 0.8s/次粗估</span>

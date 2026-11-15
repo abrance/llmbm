@@ -4,7 +4,9 @@
 import { formatStat } from '@llmbm/core';
 import { groupLabel } from '../data/bank.js';
 import { probesOf } from './metrics.js';
+import { modelTraceMarkdownBlock } from './model-trace.js';
 import { signalMarkdownBlock } from './signals.js';
+import { timeoutMarkdownBlock } from './timeout.js';
 import type { RunRecord } from './types.js';
 
 function pad(n: number): string {
@@ -96,6 +98,16 @@ export function exportMarkdown(run: RunRecord): string {
   lines.push('## 家族指纹（弱信号）');
   lines.push('');
   lines.push(...signalMarkdownBlock(run));
+  lines.push('');
+
+  lines.push('## 超时归因');
+  lines.push('');
+  lines.push(...timeoutMarkdownBlock(run.report.timeout));
+  lines.push('');
+
+  lines.push('## ModelTrace 指纹排名（附加结论，不进能力分）');
+  lines.push('');
+  lines.push(...modelTraceMarkdownBlock(run));
   lines.push('');
 
   lines.push('## 问题探针');

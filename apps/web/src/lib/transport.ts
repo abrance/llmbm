@@ -322,6 +322,83 @@ async function execute(
   return { text: '', error: '重试次数耗尽' };
 }
 
+/** 发一次已构造好的请求（ModelTrace 探针复用同一条传输路径，不新写 HTTP 客户端）。
+ * 与 chatOnce 的区别：请求体由调用方（core 探针）构造，这里只负责发送、超时、取消与解析；
+ * 单次发送不重试，失败作为 ModelResponse.error 返回，由探针自己记一条无效样本。 */
+export async function sendPrepared(
+  prepared: PreparedRequest,
+  adapter: Adapter,
+  signal: AbortSignal,
+  timeoutMs = 180000,
+  fetchImpl: typeof fetch = fetch,
+): Promise<ModelResponse> {
+  const controller = new AbortController();
+  let timedOut = false;
+  const onAbort = () => controller.abort();
+  if (signal.aborted) controller.abort();
+  else signal.addEventListener('abort', onAbort, { once: true });
+  const timer = setTimeout(() => {
+    timedOut = true;
+    controller.abort();
+  }, timeoutMs);
+
+  const started = performance.now();
+  try {
+    const res = await fetchImpl(prepared.url, {
+      method: prepared.method,
+      headers: prepared.headers,
+      body: prepared.body,
+      signal: controller.signal,
+    });
+    if (!res.ok) {
+      const rawText = await res.text().catch(() => '');
+      return {
+        text: '',
+        error: `HTTP ${res.status}${rawText ? `：${rawText.slice(0, 300)}` : ''}`,
+        httpStatus: res.status,
+        latencyMs: Math.round(performance.now() - started),
+        raw: rawText,
+      };
+    }
+
+    const { text: rawText, ttftMs, chunks } = await readWithTiming(res, started);
+    const totalMs = Math.round(performance.now() - started);
+    const contentType = (res.headers.get('content-type') ?? '').toLowerCase();
+    if (contentType.includes('text/event-stream') || looksLikeSse(rawText)) {
+      const parsed = parseEventStream(rawText, adapter, res.status);
+      return {
+        ...parsed,
+        latencyMs: totalMs,
+        httpStatus: res.status,
+        ...(ttftMs !== undefined ? { ttftMs } : {}),
+        ...(chunks !== undefined ? { chunks } : {}),
+      };
+    }
+
+    let json: unknown;
+    try {
+      json = JSON.parse(rawText);
+    } catch {
+      return {
+        text: '',
+        error: `响应不是合法 JSON：${rawText.slice(0, 200)}`,
+        httpStatus: res.status,
+        latencyMs: totalMs,
+        raw: rawText,
+      };
+    }
+    return { ...adapter.parseChatResponse(json, res.status), raw: json, latencyMs: totalMs, httpStatus: res.status };
+  } catch (err) {
+    if (signal.aborted) throw new DOMException('aborted', 'AbortError');
+    const latencyMs = Math.round(performance.now() - started);
+    if (timedOut) return { text: '', error: `请求超时（${timeoutMs}ms）`, latencyMs };
+    return { text: '', error: `网络错误：${err instanceof Error ? err.message : String(err)}`, latencyMs };
+  } finally {
+    clearTimeout(timer);
+    signal.removeEventListener('abort', onAbort);
+  }
+}
+
 /** 发一次 chat 请求；超时/网络错误以 ModelResponse.error 返回，取消则以 AbortError 抛出。 */
 export async function chatOnce(
   ep: EndpointConfig,

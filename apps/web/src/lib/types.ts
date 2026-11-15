@@ -7,6 +7,7 @@ import type {
   JudgeCheck,
   ModelFingerprint,
   ModelResponse,
+  ModelTraceResult,
   OutcomeReport,
   QuestionScore,
   QuestionStatus,
@@ -69,7 +70,8 @@ export interface RunRecord {
   cancelled: boolean;
   expected: number;
   results: QuestionResult[];
-  report: OutcomeReport;
+  /** 能力分报告；`timeout` 是 F14 的附加归因，只展示、不进任何分数。 */
+  report: OutcomeReport & { timeout?: TimeoutReport };
   injectFlaky: boolean;
   /** 非用户取消的提前终止原因（账户/配置/端点不可用）；有值时 cancelled 也为 true。 */
   abortReason?: string;
@@ -81,6 +83,33 @@ export interface RunRecord {
   fingerprint?: ModelFingerprint;
   /** F10 退化汇总（弱信号）。 */
   degradation?: DegradationSummary;
+  /** v0.4 ModelTrace 指纹探针（附加结论）。旧记录没有该字段。 */
+  modelTrace?: ModelTraceResult;
+  /** 本次是否请求了 ModelTrace 探针；用于区分「旧记录未采集」与「探针失败」。 */
+  modelTraceRequested?: boolean;
+}
+
+/** F14 超时归因（只展示，不进 judge / 能力分）。 */
+export type TimeoutClass = 'connect' | 'first-token' | 'mid-stream' | 'rate-limit' | 'gateway' | 'unknown';
+
+export interface TimeoutSample {
+  questionId: string;
+  group: string;
+  sampleIndex: number;
+  error: string;
+  class: TimeoutClass;
+  httpStatus?: number;
+  latencyMs?: number;
+  timeoutMs?: number;
+}
+
+export interface TimeoutReport {
+  /** 本次参与统计的请求数（全部采样）。 */
+  requests: number;
+  /** 有传输错误的采样数。 */
+  samples: number;
+  byClass: Record<TimeoutClass, number>;
+  entries: TimeoutSample[];
 }
 
 export interface RunCheckpoint {
@@ -107,6 +136,8 @@ export interface StartOptions {
   onlyIds?: string[];
   /** 把结果合并回已有 run（补测），不新建 run。 */
   mergeInto?: RunRecord;
+  /** 结束后额外跑 ModelTrace 指纹探针（默认关）。 */
+  modelTrace?: boolean;
 }
 
 /* ------------------------------------------------------------------ worker 协议 */

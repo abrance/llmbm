@@ -15,6 +15,8 @@ export interface RunContextValue {
   progress: ProgressState;
   startedAtMs?: number;
   error?: string;
+  /** ModelTrace 探针正在采集（结果页显示进行中，而不是失败）。 */
+  modelTracePending: boolean;
   availableJudges: readonly JudgeKind[];
   bankVersion: string;
   judgeRuleVersion: string;
