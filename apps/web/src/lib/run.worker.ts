@@ -3,7 +3,6 @@
  * 判分、聚合、区间全部调用 @llmbm/core（D1），这里只做调度与事件上报。
  */
 import {
-  aggregate,
   classifyFailure,
   detectWrapped,
   judge,
@@ -14,6 +13,7 @@ import {
   type QuestionScore,
 } from '@llmbm/core';
 import type { BankQuestion } from '../data/bank.js';
+import { aggregateRun, scoredResults } from './aggregateRun.js';
 import { FailureGuard, toleratedNotices } from './abort.js';
 import { chatOnce, probeEndpoint } from './transport.js';
 import { signalsOf } from './signals.js';
@@ -114,6 +114,8 @@ async function runQuestion(start: WorkerStart, question: BankQuestion): Promise<
     judge: question.judge,
     core: question.core === true,
     weight: question.weight ?? 1,
+    ...(question.diagnostic === true ? { diagnostic: true } : {}),
+    ...(question.tags !== undefined ? { tags: question.tags } : {}),
     samples,
     mean: stat.mean,
     halfWidth: stat.halfWidth,
@@ -126,33 +128,44 @@ async function run(start: WorkerStart): Promise<void> {
   const doneIds = new Set(results.map((r) => r.questionId));
   const pending = start.questions.filter((q) => !doneIds.has(q.id));
   const total = start.questions.length;
-  const weights: Record<string, number> = {};
-  for (const q of start.questions) weights[q.id] = q.weight ?? 1;
+  // 「应跑题数」按队列里的能力题算（诊断题不进能力分，也不该抬高完成率分母）。
+  const planned = start.questions.filter((question) => question.diagnostic !== true).length;
 
   try {
     if (!cancelled && pending.length > 0) abortReason = await preflight(start);
     for (const question of pending) {
       if (cancelled || abortReason) break;
-      post({ type: 'progress', done: results.length, total, questionId: question.id, sampleIndex: 0, samples: start.samples });
+      post({
+        type: 'progress',
+        done: results.length,
+        total,
+        questionId: question.id,
+        sampleIndex: 0,
+        samples: start.samples,
+      });
       const result = await runQuestion(start, question);
       if (!result) break;
       results.push(result);
       post({ type: 'question', result });
-      post({ type: 'progress', done: results.length, total, questionId: question.id, sampleIndex: start.samples - 1, samples: start.samples });
+      post({
+        type: 'progress',
+        done: results.length,
+        total,
+        questionId: question.id,
+        sampleIndex: start.samples - 1,
+        samples: start.samples,
+      });
     }
 
-    const report = aggregate({
-      scores: results.flatMap((r) => r.samples.map((s) => s.score)),
-      expectedQuestions: total,
-      weights,
-      samplesPerQuestion: start.samples,
-    });
+    // 诊断题（group=timeout）只做时延观测：aggregateRun 在聚合前剔除，避免污染能力分与稳定性。
+    const report = aggregateRun(results, start.samples, planned);
     const notices = toleratedNotices(guard.tolerated(), report.transport);
     post({
       type: 'done',
       report,
       results,
-      signals: signalsOf(results),
+      // F9/F10 看的是能力题的响应形态；诊断题的超时样本会拉低平均字数，不参与弱信号。
+      signals: signalsOf(scoredResults(results)),
       cancelled: cancelled || abortReason !== undefined,
       ...(abortReason ? { abortReason } : {}),
       ...(notices.length > 0 ? { notices } : {}),

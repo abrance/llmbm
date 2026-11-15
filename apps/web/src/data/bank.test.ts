@@ -28,16 +28,24 @@ test('每类 judge 至少 2 题（正例 + 难点各一）', () => {
   }
 });
 
-test('题目 id 唯一、必填字段齐全、分数权重非负', () => {
+test('题目 id 唯一、必填字段齐全、权重口径正确（诊断题 weight=0）', () => {
   const ids = new Set<string>();
   for (const q of QUESTION_BANK) {
     assert.ok(!ids.has(q.id), `重复 id: ${q.id}`);
     ids.add(q.id);
     assert.ok(q.prompt.trim().length > 0, `${q.id} 没有 prompt`);
     assert.ok((q.timeoutMs ?? 0) > 0, `${q.id} 没有超时`);
-    assert.ok((q.weight ?? 1) >= 0, `${q.id} 权重非法`);
+    if (q.diagnostic === true) assert.equal(q.weight, 0, `${q.id} 是诊断题，weight 必须为 0（只观测不评分）`);
+    else assert.ok((q.weight ?? 1) > 0, `${q.id} 权重非法`);
   }
-  assert.ok(QUESTION_BANK.some((q) => q.core === true), '至少要有 core 题');
+  assert.ok(
+    QUESTION_BANK.some((q) => q.core === true),
+    '至少要有 core 题',
+  );
+  assert.ok(
+    QUESTION_BANK.some((q) => q.diagnostic === true),
+    '至少要有诊断题',
+  );
 });
 
 test('timeout 组只观测不评分：全部 weight=0，且默认不勾选', () => {
@@ -93,21 +101,27 @@ test('每题都有 mock 演示答案，工具题带 tools 与 toolCalls', () => 
 
 test('exact 题的 mock 答案与 expect 完全一致（演示可满分）', () => {
   for (const q of QUESTION_BANK.filter((item) => item.judge === 'exact')) {
-    const expected = typeof q.expect === 'object' && q.expect !== null && 'value' in q.expect ? String(q.expect.value) : String(q.expect);
+    const expected =
+      typeof q.expect === 'object' && q.expect !== null && 'value' in q.expect
+        ? String(q.expect.value)
+        : String(q.expect);
     assert.equal((q.mock?.text ?? '').trim(), expected.trim(), `${q.id} 的 mock 与 expect 不一致`);
   }
 });
 
-test('超时与响应时延分组：至少 8 题、每题有 description 与超时预算', () => {
+test('超时与响应时延分组：至少 8 题、全为诊断题（weight=0 + diagnostic）、每题有超时预算', () => {
   const group = QUESTION_BANK.filter((q) => q.group === 'timeout');
   assert.ok(group.length >= 8, `timeout 只有 ${group.length} 题`);
   for (const q of group) {
     assert.ok((q.description ?? '').trim().length >= 10, `${q.id} 缺 description`);
     assert.ok((q.timeoutMs ?? 0) > 0, `${q.id} 没有超时预算`);
+    // 只做诊断：不进 scores/expectedQuestions，否则 10 道低难度题会污染能力分。
+    assert.equal(q.diagnostic, true, `${q.id} 缺 diagnostic 标记`);
+    assert.equal(q.weight, 0, `${q.id} 是诊断题，weight 必须为 0`);
   }
   // 覆盖 brief 要求的坏法：首字慢 / 挂起 / 流式卡死 / 滴流 / 长输出 / 短问答 / 并发
   const tags = new Set(group.flatMap((q) => q.tags ?? []));
-  for (const tag of ['首字慢', '挂起', '断流', '滴流', '长输出', '短问答', '并发']) {
+  for (const tag of ['首字慢', '挂起', '断流', '滴流', '长输出', '短问答', '并发', '人工复核']) {
     assert.ok(tags.has(tag), `timeout 分组缺少「${tag}」类用例`);
   }
 });

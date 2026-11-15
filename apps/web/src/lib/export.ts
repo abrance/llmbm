@@ -8,7 +8,7 @@ import { latencyMarkdownBlock } from './latencyMarkdown.js';
 import { latencyReportOf } from './latencyReport.js';
 import { modelTraceMarkdownBlock } from './model-trace.js';
 import { signalMarkdownBlock } from './signals.js';
-import { timeoutMarkdownBlock } from './timeout.js';
+import { timeoutMarkdownBlock } from './timeoutReport.js';
 import type { RunRecord } from './types.js';
 
 function pad(n: number): string {
@@ -43,8 +43,30 @@ function sampleBlock(run: RunRecord, limit = 600): string[] {
       const text = sample.response.text || '（空响应）';
       const clipped = text.length > limit ? `${text.slice(0, limit)}…` : text;
       lines.push('');
-      lines.push(`#### 采样 ${index + 1}（${sample.score.score.toFixed(1)} 分 / ${sample.response.latencyMs ?? '—'}ms）`);
+      lines.push(
+        `#### 采样 ${index + 1}（${sample.score.score.toFixed(1)} 分 / ${sample.response.latencyMs ?? '—'}ms）`,
+      );
       if (sample.response.error) lines.push(`> 传输错误：${sample.response.error}`);
+      const attemptLog = sample.response.attemptLog ?? [];
+      if (attemptLog.length > 1 || (attemptLog[0]?.outcome === 'timeout' && sample.response.error)) {
+        lines.push(
+          `> 尝试 ${attemptLog.length} 次：${attemptLog
+            .map(
+              (attempt) =>
+                `#${attempt.attempt} ${attempt.outcome}${attempt.httpStatus ? ` HTTP ${attempt.httpStatus}` : ''} ${attempt.latencyMs}ms`,
+            )
+            .join('；')}`,
+        );
+      }
+      if (sample.response.phase && sample.response.error) {
+        const progressBits = [
+          `阶段 ${sample.response.phase}`,
+          `已收 ${sample.response.chunks ?? 0} 片`,
+          ...(sample.response.ttftMs !== undefined ? [`TTFT ${sample.response.ttftMs}ms`] : []),
+          ...(sample.response.lastChunkAtMs !== undefined ? [`最后增量 ${sample.response.lastChunkAtMs}ms`] : []),
+        ];
+        lines.push(`> 已采集进度：${progressBits.join('、')}`);
+      }
       lines.push('```text');
       lines.push(clipped);
       lines.push('```');
@@ -69,7 +91,9 @@ export function exportMarkdown(run: RunRecord): string {
   lines.push('');
   lines.push(`- 端点：${run.endpoint.domain}`);
   lines.push(`- 模型：${run.endpoint.model}（${run.endpoint.protocol}）`);
-  lines.push(`- 能力分：${report.total.mean.toFixed(2)} ± ${report.total.halfWidth.toFixed(2)}（${report.total.n} 题，每题 ${run.samples} 次采样）`);
+  lines.push(
+    `- 能力分：${report.total.mean.toFixed(2)} ± ${report.total.halfWidth.toFixed(2)}（${report.total.n} 题，每题 ${run.samples} 次采样）`,
+  );
   lines.push(
     `- 传输错误：${(transport.rate * 100).toFixed(1)}%（${transport.errors}/${transport.samples} 次请求没收到答案，已从能力分聚合剔除；有效采样 ${sampleCounts.valid}/${sampleCounts.total}）`,
   );
@@ -78,13 +102,21 @@ export function exportMarkdown(run: RunRecord): string {
     `- 稳定性：${(report.stability.rate * 100).toFixed(1)}%（有效采样 ${report.samples.valid}/${report.samples.total}，完成 ${report.stability.completed}/${report.stability.expected} 题）`,
   );
   lines.push(`- 通过 / 待复核 / 失败：${report.counts.pass} / ${report.counts.pending} / ${report.counts.fail}`);
+  const diagnostics = run.results.filter((result) => result.diagnostic === true).length;
+  if (diagnostics > 0) {
+    lines.push(
+      `- 诊断题：${diagnostics} 题只观测传输时延，不计入能力分/稳定性/传输错误率与问题探针（见下面「超时与响应时延」）。`,
+    );
+  }
   for (const notice of run.notices ?? []) lines.push(`- 被容忍的失败：${notice}`);
   lines.push(`- 题库版本：${run.questionBankVersion}`);
   lines.push(`- 判定规则版本：${run.judgeRuleVersion}`);
   lines.push(`- 随机种子：${run.seed}；每题采样：${run.samples} 次`);
   lines.push(`- 开始 / 结束：${run.startedAt} / ${run.finishedAt ?? '—'}`);
   lines.push('');
-  lines.push('> 区间（± 半宽）只反映同一模型多次采样的离散度，不覆盖题库覆盖度与判定口径差异；temperature=0 下采样可能完全一致，± 0.00 不等于高置信。');
+  lines.push(
+    '> 区间（± 半宽）只反映同一模型多次采样的离散度，不覆盖题库覆盖度与判定口径差异；temperature=0 下采样可能完全一致，± 0.00 不等于高置信。',
+  );
   lines.push('');
 
   lines.push('## 维度得分');
@@ -104,7 +136,12 @@ export function exportMarkdown(run: RunRecord): string {
 
   lines.push('## 超时与响应时延');
   lines.push('');
-  lines.push(...latencyMarkdownBlock(latencyReportOf(run.results)));
+  lines.push(...latencyMarkdownBlock(latencyReportOf(run)));
+  lines.push('');
+
+  lines.push('## ModelTrace 指纹排名（附加结论，不进能力分）');
+  lines.push('');
+  lines.push(...modelTraceMarkdownBlock(run));
   lines.push('');
 
   lines.push('## 超时归因');
@@ -125,7 +162,9 @@ export function exportMarkdown(run: RunRecord): string {
     lines.push('| 题号 | 维度 | 判定 | 状态 | 分数 | 原因 |');
     lines.push('|---|---|---|---|---|---|');
     for (const probe of probes) {
-      lines.push(`| ${probe.questionId} | ${groupLabel(probe.group)} | ${probe.judge} | ${probe.status} | ${probe.score} | ${probe.reason.replace(/\|/g, '\\|')} |`);
+      lines.push(
+        `| ${probe.questionId} | ${groupLabel(probe.group)} | ${probe.judge} | ${probe.status} | ${probe.score} | ${probe.reason.replace(/\|/g, '\\|')} |`,
+      );
     }
   }
   lines.push('');

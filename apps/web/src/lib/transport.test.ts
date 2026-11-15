@@ -2,7 +2,14 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import type { EndpointConfig, ToolSpec } from '@llmbm/core';
 import type { BankQuestion } from '../data/bank.ts';
-import { chatOnce, fetchModels, pingEndpoint, prepareChatRequest, probeEndpoint, tokensPerSecond } from './transport.ts';
+import {
+  chatOnce,
+  fetchModels,
+  pingEndpoint,
+  prepareChatRequest,
+  probeEndpoint,
+  tokensPerSecond,
+} from './transport.ts';
 
 const OPENAI: EndpointConfig = {
   baseUrl: 'https://relay.example.com',
@@ -175,7 +182,9 @@ test('chatOnce：多轮与 max_tokens/temperature 原样进请求体', async () 
   let body: Record<string, unknown> = {};
   const fake = (async (_url: string, init: RequestInit) => {
     body = JSON.parse(String(init.body)) as Record<string, unknown>;
-    return jsonResponse({ choices: [{ index: 0, message: { role: 'assistant', content: 'ok' }, finish_reason: 'stop' }] });
+    return jsonResponse({
+      choices: [{ index: 0, message: { role: 'assistant', content: 'ok' }, finish_reason: 'stop' }],
+    });
   }) as unknown as typeof fetch;
 
   await chatOnce(
@@ -202,7 +211,9 @@ test('chatOnce：图片题按协议把图片分片塞进最后一条 user', asyn
   let body: Record<string, unknown> = {};
   const fake = (async (_url: string, init: RequestInit) => {
     body = JSON.parse(String(init.body)) as Record<string, unknown>;
-    return jsonResponse({ choices: [{ index: 0, message: { role: 'assistant', content: '蓝' }, finish_reason: 'stop' }] });
+    return jsonResponse({
+      choices: [{ index: 0, message: { role: 'assistant', content: '蓝' }, finish_reason: 'stop' }],
+    });
   }) as unknown as typeof fetch;
 
   await chatOnce(
@@ -220,16 +231,16 @@ test('chatOnce：图片题按协议把图片分片塞进最后一条 user', asyn
 });
 
 test('chatOnce：HTTP 200 但没有 finishReason 视为流断，保留正文并报错', async () => {
-  const frames = [
-    'data: {"choices":[{"delta":{"content":"半截回答"}}]}',
-    'data: [DONE]',
-  ].join('\n');
+  const frames = ['data: {"choices":[{"delta":{"content":"半截回答"}}]}', 'data: [DONE]'].join('\n');
 
   const out = await chatOnce(OPENAI, question(), options(), fetchOnce(sseResponse(frames)));
 
   assert.equal(out.text, '半截回答');
   assert.equal(out.finishReason, undefined);
   assert.match(out.error ?? '', /流在完成标记前结束/);
+  // 断流也保留进度：断在「已收到正文」这一段，而不是冒充正常结束。
+  assert.equal(out.phase, 'streaming');
+  assert.equal(out.chunks, 1);
 });
 
 test('chatOnce：429/5xx 退避重试，第二次成功', async () => {
@@ -266,27 +277,21 @@ test('fetchModels：mock 端点用 core 的 buildModelsRequest', async () => {
 });
 
 test('工具题：OpenAI 兼容下 tools 由 core 原样透传', () => {
-  const tools: ToolSpec[] = [
-    { type: 'function', function: { name: 'get_weather', parameters: { type: 'object' } } },
-  ];
+  const tools: ToolSpec[] = [{ type: 'function', function: { name: 'get_weather', parameters: { type: 'object' } } }];
   const { request } = prepareChatRequest(OPENAI, [{ role: 'user', content: '查天气' }], { tools });
   const body = JSON.parse(request.body) as Record<string, unknown>;
   assert.deepEqual(body['tools'], tools);
 });
 
 test('工具题：anthropic 由 core 映射为 input_schema', () => {
-  const tools: ToolSpec[] = [
-    { type: 'function', function: { name: 'get_weather', parameters: { type: 'object' } } },
-  ];
+  const tools: ToolSpec[] = [{ type: 'function', function: { name: 'get_weather', parameters: { type: 'object' } } }];
   const { request } = prepareChatRequest(ANTHROPIC, [{ role: 'user', content: '查天气' }], { tools });
   const body = JSON.parse(request.body) as Record<string, unknown>;
   assert.deepEqual(body['tools'], [{ name: 'get_weather', input_schema: { type: 'object' } }]);
 });
 
 test('工具题：gemini 由 core 映射为 functionDeclarations', () => {
-  const tools: ToolSpec[] = [
-    { type: 'function', function: { name: 'get_weather', parameters: { type: 'object' } } },
-  ];
+  const tools: ToolSpec[] = [{ type: 'function', function: { name: 'get_weather', parameters: { type: 'object' } } }];
   const gemini: EndpointConfig = {
     baseUrl: 'https://generativelanguage.googleapis.com',
     apiKey: 'gemini-key',
@@ -295,7 +300,9 @@ test('工具题：gemini 由 core 映射为 functionDeclarations', () => {
   };
   const { request } = prepareChatRequest(gemini, [{ role: 'user', content: '查天气' }], { tools });
   const body = JSON.parse(request.body) as Record<string, unknown>;
-  assert.deepEqual(body['tools'], [{ functionDeclarations: [{ name: 'get_weather', parameters: { type: 'object' } }] }]);
+  assert.deepEqual(body['tools'], [
+    { functionDeclarations: [{ name: 'get_weather', parameters: { type: 'object' } }] },
+  ]);
 });
 
 test('连通性测试：推理模型把 token 全用在 reasoning 上，不应判「响应没有正文」', async () => {
@@ -372,7 +379,10 @@ test('兼容重试只做一次：补了 reasoning_content 仍被 400 拒绝就�
   let calls = 0;
   const fetchStub = (async () => {
     calls += 1;
-    return jsonResponse({ error: { message: 'reasoning_content must be passed back', type: 'invalid_request_error' } }, 400);
+    return jsonResponse(
+      { error: { message: 'reasoning_content must be passed back', type: 'invalid_request_error' } },
+      400,
+    );
   }) as unknown as typeof fetch;
 
   const out = await chatOnce(
@@ -395,8 +405,122 @@ test('兼容重试只做一次：补了 reasoning_content 仍被 400 拒绝就�
 
 test('预检探针把账户类错误原样带回来（带 httpStatus 供定性）', async () => {
   // 429 会被重试，响应体每次要新的 Response 实例
-  const fetchStub = (async () => jsonResponse({ error: { message: 'insufficient_quota' } }, 429)) as unknown as typeof fetch;
+  const fetchStub = (async () =>
+    jsonResponse({ error: { message: 'insufficient_quota' } }, 429)) as unknown as typeof fetch;
   const probe = await probeEndpoint(OPENAI, fetchStub);
   assert.equal(probe.httpStatus, 429);
   assert.match(String(probe.error), /insufficient_quota/);
+});
+
+/* --------------------------------------------------- 超时保留进度 / attempt 明细 */
+
+const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
+/** 按片返回的 SSE 响应；`stalling` 时最后一帧之后永不关闭（模拟流式中段卡死）。 */
+function timedSse(parts: { text: string; delayMs?: number }[], stalling = false): Response {
+  const encoder = new TextEncoder();
+  let index = 0;
+  const stream = new ReadableStream<Uint8Array>({
+    async pull(controller) {
+      const part = parts[index];
+      if (!part) {
+        if (stalling) return;
+        controller.close();
+        return;
+      }
+      index += 1;
+      if (part.delayMs) await sleep(part.delayMs);
+      controller.enqueue(encoder.encode(part.text));
+    },
+  });
+  return new Response(stream, { status: 200, headers: { 'content-type': 'text/event-stream' } });
+}
+
+const SSE_DONE = 'data: {"choices":[{"delta":{},"finish_reason":"stop"}]}\n\ndata: [DONE]\n\n';
+
+test('流式中段卡死超时：回传 ttftMs / chunks / lastChunkAtMs / phase，不把已收进度丢掉', async () => {
+  const res = timedSse(
+    [
+      { text: 'data: {"choices":[{"delta":{"content":"前半段"}}]}\n\n' },
+      { text: 'data: {"choices":[{"delta":{"content":"后半段"}}]}\n\n' },
+    ],
+    true,
+  );
+  const out = await chatOnce(
+    OPENAI,
+    question({ id: 'timeout-stream-stall-001', timeoutMs: 150 }),
+    options(),
+    fetchOnce(res),
+  );
+
+  assert.match(String(out.error), /请求超时（150ms）/);
+  assert.equal(out.phase, 'streaming');
+  assert.equal(out.chunks, 2);
+  assert.equal(typeof out.ttftMs, 'number');
+  assert.equal(typeof out.lastChunkAtMs, 'number');
+  assert.equal(out.attempts, 1);
+  assert.deepEqual(
+    out.attemptLog?.map((a) => a.outcome),
+    ['timeout'],
+  );
+});
+
+test('首字前挂起：只在没收到任何字节时才重试一次，attempt 明细保留两次超时', async () => {
+  let calls = 0;
+  const fetchStub = (async () => {
+    calls += 1;
+    return timedSse([], true);
+  }) as unknown as typeof fetch;
+
+  const out = await chatOnce(OPENAI, question({ id: 'timeout-hang-001', timeoutMs: 60 }), options(), fetchStub);
+
+  assert.equal(calls, 2);
+  assert.match(String(out.error), /请求超时/);
+  assert.equal(out.phase, 'before-first-byte');
+  assert.equal(out.chunks, 0);
+  assert.equal(out.ttftMs, undefined);
+  assert.equal(out.attempts, 2);
+  assert.deepEqual(
+    out.attemptLog?.map((a) => a.outcome),
+    ['timeout', 'timeout'],
+  );
+});
+
+test('心跳与空 role 帧不算首字：TTFT 从第一个正文增量算起', async () => {
+  const res = timedSse([
+    { text: 'data: {"choices":[{"delta":{"role":"assistant"}}]}\n\n' },
+    { text: 'data: {"choices":[{"delta":{"content":""}}]}\n\n', delayMs: 70 },
+    { text: 'data: {"choices":[{"delta":{"content":"你好"}}]}\n\n', delayMs: 70 },
+    { text: SSE_DONE },
+  ]);
+  const out = await chatOnce(OPENAI, question(), options(), fetchOnce(res));
+
+  assert.equal(out.error, undefined);
+  assert.equal(out.phase, 'done');
+  assert.equal(typeof out.ttftMs, 'number');
+  assert.ok((out.ttftMs as number) >= 110, `TTFT 应至少跨过两帧延迟，实际 ${out.ttftMs}`);
+  assert.equal(out.chunks, 4);
+});
+
+test('429 重试后成功：逻辑采样成功，但 attempt 明细保留第一次的限流', async () => {
+  let calls = 0;
+  const fetchStub = (async () => {
+    calls += 1;
+    if (calls === 1) return jsonResponse({ error: { message: 'slow down' } }, 429);
+    return jsonResponse({
+      choices: [{ message: { content: 'ok' }, finish_reason: 'stop' }],
+      usage: { prompt_tokens: 1, completion_tokens: 1, total_tokens: 2 },
+    });
+  }) as unknown as typeof fetch;
+
+  const out = await chatOnce(OPENAI, question(), options(), fetchStub);
+
+  assert.equal(out.error, undefined);
+  assert.equal(out.text, 'ok');
+  assert.equal(out.attempts, 2);
+  assert.deepEqual(
+    out.attemptLog?.map((a) => a.outcome),
+    ['retryable', 'success'],
+  );
+  assert.equal(out.attemptLog?.[0]?.httpStatus, 429);
 });

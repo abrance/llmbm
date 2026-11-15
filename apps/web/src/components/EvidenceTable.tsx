@@ -14,7 +14,11 @@ function QuestionContextBlock({ questionId }: { questionId: string }) {
   if (!question) return null;
   const summary: QuestionContextSummary = summarizeQuestion(question);
   const truncated = buildMessages(question)
-    .map((m) => (typeof m.content === 'string' ? m.content : m.content.map((p) => (p.type === 'text' ? p.text : `［图片 ${p.mimeType}］`)).join('')))
+    .map((m) =>
+      typeof m.content === 'string'
+        ? m.content
+        : m.content.map((p) => (p.type === 'text' ? p.text : `［图片 ${p.mimeType}］`)).join(''),
+    )
     .join('\n\n');
   return (
     <div className="question-context" style={{ marginBottom: 12 }}>
@@ -34,7 +38,11 @@ function QuestionContextBlock({ questionId }: { questionId: string }) {
         </Descriptions.Item>
         <Descriptions.Item label="输入规模">{summary.inputChars} 字符</Descriptions.Item>
         <Descriptions.Item label="超时">{summary.timeoutMs} ms</Descriptions.Item>
-        {summary.system ? <Descriptions.Item label="system" span={2}>{summary.system}</Descriptions.Item> : null}
+        {summary.system ? (
+          <Descriptions.Item label="system" span={2}>
+            {summary.system}
+          </Descriptions.Item>
+        ) : null}
         {summary.injection ? (
           <Descriptions.Item label="长文档注入" span={2}>
             背景约 {summary.injection.fillerChars} 字符，针在 {Math.round(summary.injection.needleAt * 100)}% 位置
@@ -59,7 +67,11 @@ function QuestionContextBlock({ questionId }: { questionId: string }) {
           {
             key: 'ctx',
             label: '实际发出的输入（长文档已截断展示）',
-            children: <pre className="response-text">{truncated.length > 2000 ? `${truncated.slice(0, 2000)}…（共 ${truncated.length} 字）` : truncated}</pre>,
+            children: (
+              <pre className="response-text">
+                {truncated.length > 2000 ? `${truncated.slice(0, 2000)}…（共 ${truncated.length} 字）` : truncated}
+              </pre>
+            ),
           },
         ]}
       />
@@ -85,7 +97,9 @@ function SampleView({ sample }: { sample: SampleResult }) {
   ];
   return (
     <div className="sample-view">
-      {response.error ? <Alert type="error" showIcon message="本次采样失败" description={response.error} style={{ marginBottom: 12 }} /> : null}
+      {response.error ? (
+        <Alert type="error" showIcon message="本次采样失败" description={response.error} style={{ marginBottom: 12 }} />
+      ) : null}
       <div className="sample-meta">
         <span>HTTP {response.httpStatus ?? '—'}</span>
         <span>总耗时 {response.latencyMs ?? '—'} ms</span>
@@ -101,7 +115,13 @@ function SampleView({ sample }: { sample: SampleResult }) {
         <Collapse
           size="small"
           style={{ marginBottom: 12 }}
-          items={[{ key: 'reasoning', label: 'reasoning / thinking', children: <pre className="response-text">{response.reasoning}</pre> }]}
+          items={[
+            {
+              key: 'reasoning',
+              label: 'reasoning / thinking',
+              children: <pre className="response-text">{response.reasoning}</pre>,
+            },
+          ]}
         />
       ) : null}
       {response.toolCalls && response.toolCalls.length > 0 ? (
@@ -134,14 +154,28 @@ function SampleView({ sample }: { sample: SampleResult }) {
       {response.raw !== undefined ? (
         <Collapse
           size="small"
-          items={[{ key: 'raw', label: '原始响应 JSON（证据原文）', children: <pre className="response-text raw">{JSON.stringify(response.raw, null, 2)}</pre> }]}
+          items={[
+            {
+              key: 'raw',
+              label: '原始响应 JSON（证据原文）',
+              children: <pre className="response-text raw">{JSON.stringify(response.raw, null, 2)}</pre>,
+            },
+          ]}
         />
       ) : null}
     </div>
   );
 }
 
-export function EvidenceTable({ run, onRetry, busy }: { run: RunRecord; onRetry: (ids: string[]) => void; busy?: boolean }) {
+export function EvidenceTable({
+  run,
+  onRetry,
+  busy,
+}: {
+  run: RunRecord;
+  onRetry: (ids: string[]) => void;
+  busy?: boolean;
+}) {
   const columns: ColumnsType<QuestionResult> = [
     {
       title: '题目',
@@ -150,7 +184,16 @@ export function EvidenceTable({ run, onRetry, busy }: { run: RunRecord; onRetry:
       render: (v: string, r) => (
         <span>
           <code>{v}</code>
-          {r.core ? <Tag color="blue" style={{ marginLeft: 6 }}>core</Tag> : null}
+          {r.core ? (
+            <Tag color="blue" style={{ marginLeft: 6 }}>
+              core
+            </Tag>
+          ) : null}
+          {r.diagnostic ? (
+            <Tag color="default" style={{ marginLeft: 6 }}>
+              诊断·不计分
+            </Tag>
+          ) : null}
         </span>
       ),
     },
@@ -189,15 +232,15 @@ export function EvidenceTable({ run, onRetry, busy }: { run: RunRecord; onRetry:
         expandable={{
           expandedRowRender: (record) => (
             <>
-            <QuestionContextBlock questionId={record.questionId} />
-            <Tabs
-              size="small"
-              items={record.samples.map((sample) => ({
-                key: String(sample.index),
-                label: `#${sample.index + 1} · ${sample.score.score.toFixed(0)} 分 · ${sample.response.latencyMs ?? '—'}ms`,
-                children: <SampleView sample={sample} />,
-              }))}
-            />
+              <QuestionContextBlock questionId={record.questionId} />
+              <Tabs
+                size="small"
+                items={record.samples.map((sample) => ({
+                  key: String(sample.index),
+                  label: `#${sample.index + 1} · ${sample.score.score.toFixed(0)} 分 · ${sample.response.latencyMs ?? '—'}ms`,
+                  children: <SampleView sample={sample} />,
+                }))}
+              />
             </>
           ),
         }}
