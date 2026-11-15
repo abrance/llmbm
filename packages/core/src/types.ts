@@ -60,7 +60,8 @@ export type QuestionGroup =
   | 'endurance'
   | 'advanced'
   | 'spotlight'
-  | 'context';
+  | 'context'
+  | 'timeout';
 
 /**
  * 模型请求的额外参数（参数语义用例用）。缺省 temperature=0，与历史行为一致。
@@ -99,6 +100,11 @@ export interface Question {
   weight?: number;
   /** 核心题：答错该题直接 0 分（§2.3）。 */
   core?: boolean;
+  /**
+   * 诊断题：只为观测（如超时/时延），不进入能力分、维度分与 format；
+   * 调用方（worker）在聚合前把它从 scores/expectedQuestions 里剔除，结果页单独展示。
+   */
+  diagnostic?: boolean;
   /**
    * 这题测什么、答错说明什么 —— 展示在题库页与证据链里。
    * 判分不读它；它是给人看的用例说明（spec §2.4）。
@@ -143,6 +149,9 @@ export interface Usage {
   totalTokens?: number;
 }
 
+/** 一次请求所处的传输阶段：未出首字 / 正文流中 / 已结束。 */
+export type TransportPhase = 'before-first-byte' | 'streaming' | 'done';
+
 export interface ModelResponse {
   /** 助手正文。 */
   text: string;
@@ -156,8 +165,14 @@ export interface ModelResponse {
   latencyMs?: number;
   /** 首字延迟：从发出请求到收到第一个正文增量（流式）；非流式为 undefined。 */
   ttftMs?: number;
-  /** 收到的传输分片数，用于判断「假流式」（一次性吐完）。 */
+  /** 最后一次收到有效增量的时间点（从请求开始计）；超时/断流时保留已收到的进度。 */
+  lastChunkAtMs?: number;
+  /** 收到的传输分片数，用于判断「假流式」（一次性吐完）；失败时保留已收到的分片数。 */
   chunks?: number;
+  /** 失败时请求所处阶段；成功完成时为 done。 */
+  phase?: TransportPhase;
+  /** 实际发起过的 HTTP 尝试次数（含 429/5xx/超时后的重试）；用于把 attempt 级失败与逻辑采样分开。 */
+  attempts?: number;
   /** 解码吞吐（completion tokens/s，扣掉首字延迟）；缺 usage 时为 undefined。 */
   tokensPerSec?: number;
   httpStatus?: number;

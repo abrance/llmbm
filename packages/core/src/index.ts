@@ -8,5 +8,6 @@ export * from './scoring/interval.js';
 export * from './aggregate.js';
 export * from './prompt.js';
 export * from './failure.js';
+export * from './timeout.js';
 export * from './sampling/index.js';
 export * from './fingerprint/index.js';
