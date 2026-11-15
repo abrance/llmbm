@@ -26,6 +26,13 @@
 | F11 | 证据链 | 每次响应原文留存，可导出 md / json |
 | F12 | 社区 | 提交结果 → 按域名/模型列表 → 横向对比榜单（**参与是选项，默认不勾选**；服务端要求 `consent=true`） |
 | F13 | 流程控制 | 跑测 / 补测、断点续跑（checkpoint）、随时取消（真 abort） |
+| F14 | 预检与执行控制 | 跑第一题前先发最小探针，`account`/`config` 类错误即终止；容忍与提前终止口径见 §2.6；取消是真 abort（`apps/web/src/lib/abort.ts`） |
+| F15 | 模型归因 | 独立入口、独立结果块（不随套题自动跑）：闭集 top-k + `rankingScore`；未与算法/库/候选绑定的校准前 `closedSetProbability` 恒为 null；不进能力分 / judge / 稳定性 |
+
+- **F9 与 F15 不互相写回**：F9 保持弱信号（无同端点基线只给 `insufficient-data`），F15 的归因结果不回写 F9 verdict；
+  参考库的交叉验证准确率只是库属性，不等于本次运行的置信度，不得当身份概率展示。
+- **v0.4 起传输超时归 F14 的执行控制**（分类、分母、分位数），不另占编号；判定与分位数只有一份：
+  `packages/core/src/timeout.ts` 的 `classifyTimeout` / `percentile` / `latencyStats` / `summarizeTransport`。
 
 ## 2. 判分（本产品核心资产）
 
@@ -119,9 +126,9 @@
 
 | 人 | 范围 | 边界 |
 |---|---|---|
-| pit | 仓库骨架、CI、Dockerfile/compose、scripts、README | 骨架交付后只改 `.github/` `deploy/` `scripts/` |
+| pit | 仓库骨架、CI、Dockerfile/compose、scripts、README | 骨架交付后只改 `.github/` `deploy/` `scripts/`；v0.4 例外：`packages/core/src/data/model-trace-bank/**`（参考库 + MANIFEST）与 `scripts/build-modeltrace-bank.mjs`、第三方许可归 pit |
 | wof | `apps/web/**` 全部 + `packages/core/src/data/**`（题库 JSON、题目设计） | 不改 core 的判定实现 |
-| mike | `packages/core/src/{judge,adapters,scoring,sampling}/**`、代码规范、MR 评审与合入 | 不改 `apps/web` |
+| mike | `packages/core/src/{judge,adapters,scoring,sampling,timeout,fingerprint}/**`、代码规范、MR 评审与合入 | 不改 `apps/web` |
 | sor | 架构与选型裁决、功能基线验收 | 不改业务代码 |
 
 节奏：pit 先把骨架做到 `npm ci && npm test` 能过；wof / mike 在各自目录内并行；合并顺序与冲突由 mike 定。
