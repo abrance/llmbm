@@ -36,10 +36,22 @@ export interface GroupMeta {
   goal: string;
 }
 
-export const GROUP_ORDER = ['basic', 'ability', 'adversarial', 'endurance', 'advanced', 'spotlight', 'context', 'timeout'] as const;
+export const GROUP_ORDER = [
+  'basic',
+  'ability',
+  'adversarial',
+  'endurance',
+  'advanced',
+  'spotlight',
+  'context',
+  'timeout',
+] as const;
 
-/** 默认勾选分组：timeout 组只做传输观测（不评分）且单题预算长，默认不跑，由用户显式勾选。 */
-export const DEFAULT_GROUPS: string[] = GROUP_ORDER.filter((group) => group !== 'timeout');
+/** 诊断分组：只观测传输时延，不进能力分/问题探针，默认不勾选（用户显式选择才跑）。 */
+export const DIAGNOSTIC_GROUPS: readonly string[] = ['timeout'];
+
+/** 跑测页默认分组：全部能力题，不含诊断组。 */
+export const DEFAULT_GROUPS: readonly string[] = GROUP_ORDER.filter((group) => !DIAGNOSTIC_GROUPS.includes(group));
 
 export const GROUP_META: Record<string, GroupMeta> = {
   basic: {

@@ -80,10 +80,10 @@ function reasonOf(result: QuestionResult): string {
   return unique.length > 0 ? unique.join('；') : '分数未达 pass 阈值';
 }
 
-/** 问题探针 = 非 pass 的题；补测/导出/榜单都只看这一份。 */
+/** 问题探针 = 非 pass 的能力题；诊断题（group=timeout）只走 LatencyPanel，不算能力失败。 */
 export function probesOf(results: readonly QuestionResult[]): Probe[] {
   return results
-    .filter((r) => r.status !== 'pass')
+    .filter((r) => r.status !== 'pass' && r.diagnostic !== true)
     .map((r) => ({
       questionId: r.questionId,
       group: r.group,
@@ -96,5 +96,5 @@ export function probesOf(results: readonly QuestionResult[]): Probe[] {
 }
 
 export function failedIds(results: readonly QuestionResult[]): string[] {
-  return results.filter((r) => r.status !== 'pass').map((r) => r.questionId);
+  return results.filter((r) => r.status !== 'pass' && r.diagnostic !== true).map((r) => r.questionId);
 }

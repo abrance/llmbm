@@ -7,11 +7,7 @@
  * 写第二份协议映射。
  */
 import { buildMessages } from '@llmbm/core';
-import {
-  createStreamAccumulator,
-  isRetryable,
-  resolveAdapter,
-} from '@llmbm/core/adapters';
+import { createStreamAccumulator, isRetryable, resolveAdapter } from '@llmbm/core/adapters';
 import type {
   Adapter,
   ChatMessage,
@@ -19,6 +15,7 @@ import type {
   ModelResponse,
   PreparedRequest,
   ToolSpec,
+  TransportPhase,
 } from '@llmbm/core';
 import type { BankQuestion } from '../data/bank.js';
 
@@ -26,6 +23,26 @@ export interface ChatOptions {
   signal: AbortSignal;
   sampleIndex: number;
   injectFlaky: boolean;
+  /** 只给 mock / E2E 用：显式注入故障模式（请求头 x-llmbm-fault）。 */
+  fault?: string;
+}
+
+/** 一次 HTTP 尝试的结果（attempt 级证据，不是 core 契约字段）。 */
+export interface TransportAttempt {
+  attempt: number;
+  /** `retryable` = 状态码/网络错误可重试后放弃或再试；`timeout` = 本次尝试超时。 */
+  outcome: 'success' | 'timeout' | 'retryable' | 'failed';
+  latencyMs: number;
+  httpStatus?: number;
+  error?: string;
+}
+
+/**
+ * 传输层返回的响应：core 的 ModelResponse + attempt 级明细。
+ * 逻辑采样的最终结果（error / latencyMs）与 attempt 明细分开：重试成功不会抹掉上一次超时。
+ */
+export interface TransportResponse extends ModelResponse {
+  attemptLog?: TransportAttempt[];
 }
 
 const MAX_RETRIES = 2;
@@ -151,43 +168,101 @@ interface ExecuteOptions {
   temperature?: number;
 }
 
+/** 一次请求已采集到的传输进度；超时/断流时必须原样带回，不能只剩一个「超时」。 */
+interface ReadProgress {
+  chunks: number;
+  ttftMs?: number;
+  lastChunkAtMs?: number;
+  phase: TransportPhase;
+}
+
+/** 正文增量帧：`"content":"…"` / `"text":"…"` 且值非空。心跳与空 role 帧不算首字。 */
+const CONTENT_FRAME = /"(?:content|text)"\s*:\s*"(?:[^"\\]|\\.)+"/;
+
+function progressOf(progress: ReadProgress): {
+  ttftMs?: number;
+  chunks: number;
+  lastChunkAtMs?: number;
+  phase: TransportPhase;
+} {
+  return {
+    ...(progress.ttftMs !== undefined ? { ttftMs: progress.ttftMs } : {}),
+    chunks: progress.chunks,
+    ...(progress.lastChunkAtMs !== undefined ? { lastChunkAtMs: progress.lastChunkAtMs } : {}),
+    phase: progress.phase,
+  };
+}
+
+/** 读一片 body，同时监听 abort：卡住的流不会因为底层实现不响应而永远等下去。 */
+function readChunk(
+  reader: ReadableStreamDefaultReader<Uint8Array>,
+  signal: AbortSignal,
+): Promise<ReadableStreamReadResult<Uint8Array>> {
+  return new Promise((resolve, reject) => {
+    if (signal.aborted) {
+      reject(new DOMException('aborted', 'AbortError'));
+      return;
+    }
+    const onAbort = () => reject(new DOMException('aborted', 'AbortError'));
+    signal.addEventListener('abort', onAbort, { once: true });
+    reader.read().then(
+      (value) => {
+        signal.removeEventListener('abort', onAbort);
+        resolve(value);
+      },
+      (err: unknown) => {
+        signal.removeEventListener('abort', onAbort);
+        reject(err instanceof Error ? err : new Error(String(err)));
+      },
+    );
+  });
+}
+
 /**
- * 增量读响应体，一边攒全文一边记首字延迟（TTFT）与分片数。
- * `res.text()` 拿不到这两个数，而「排队 3 秒才吐第一个字」「200 毫秒一次性吐完」
- * 这些中转站限速/假流式的证据只能在这里采到。
+ * 增量读响应体，一边攒全文一边把进度写进 `progress`（首字延迟、分片数、最后一次有效增量）。
+ * `res.text()` 拿不到这些数，而「排队 3 秒才吐第一个字」「200 毫秒一次性吐完」
+ * 这些中转站限速/假流式的证据只能在这里采到；中途 abort 时 progress 里已经有的数不能丢。
  */
 async function readWithTiming(
   res: Response,
   startedAt: number,
-): Promise<{ text: string; ttftMs?: number; chunks?: number }> {
+  progress: ReadProgress,
+  signal: AbortSignal,
+): Promise<string> {
   const body = res.body;
-  if (!body) return { text: await res.text() };
+  if (!body) return res.text();
   const reader = body.getReader();
   const decoder = new TextDecoder();
   const parts: string[] = [];
-  let ttftMs: number | undefined;
-  let chunks = 0;
   try {
     for (;;) {
-      const { done, value } = await reader.read();
+      const { done, value } = await readChunk(reader, signal);
       if (done) break;
-      chunks += 1;
+      progress.chunks += 1;
       const chunk = decoder.decode(value, { stream: true });
       parts.push(chunk);
-      // 首帧常常只有 role 或空 delta，出现正文增量才算首字。
-      if (ttftMs === undefined && /"(content|text|text_delta)"\s*:/.test(chunk)) {
-        ttftMs = Math.round(performance.now() - startedAt);
+      if (CONTENT_FRAME.test(chunk)) {
+        const elapsed = Math.round(performance.now() - startedAt);
+        if (progress.ttftMs === undefined) progress.ttftMs = elapsed;
+        progress.lastChunkAtMs = elapsed;
+        progress.phase = 'streaming';
       }
     }
     parts.push(decoder.decode());
+    progress.phase = 'done';
   } finally {
+    await reader.cancel().catch(() => undefined);
     reader.releaseLock();
   }
-  return { text: parts.join(''), ttftMs, chunks };
+  return parts.join('');
 }
 
 /** 解码吞吐：completion tokens / 首字之后的耗时；缺 usage 或耗时为 0 时不编数。 */
-export function tokensPerSecond(usage: { completionTokens?: number } | undefined, totalMs: number, ttftMs?: number): number | undefined {
+export function tokensPerSecond(
+  usage: { completionTokens?: number } | undefined,
+  totalMs: number,
+  ttftMs?: number,
+): number | undefined {
   const tokens = usage?.completionTokens;
   if (tokens === undefined || tokens <= 0 || ttftMs === undefined) return undefined;
   const decodeMs = totalMs - ttftMs;
@@ -204,12 +279,148 @@ function withReasoningEcho(messages: ChatMessage[]): ChatMessage[] {
   return messages.map((m) => (m.role === 'assistant' ? { ...m, reasoningContent: m.reasoningContent ?? '' } : m));
 }
 
+interface AttemptOutcome {
+  response: TransportResponse;
+  /** 状态码/网络错误可再试；超时只在还没收到第一个字节时才算可重试。 */
+  retryable: boolean;
+  timedOut: boolean;
+  /** 429/5xx 的 Retry-After（ms），没有就按指数退避。 */
+  retryAfterMs?: number;
+}
+
+/**
+ * 发一次 HTTP 尝试（不重试）。超时时把已采集的进度（ttftMs/chunks/lastChunkAtMs/phase）一起带回，
+ * 失败采样不能只剩一句「超时」，否则「首字慢」「流式中段卡死」无法归因。
+ */
+async function attemptOnce(
+  request: PreparedRequest,
+  adapter: Adapter,
+  headers: Record<string, string>,
+  options: { signal: AbortSignal; timeoutMs: number },
+  fetchImpl: typeof fetch,
+): Promise<AttemptOutcome> {
+  const controller = new AbortController();
+  let timedOut = false;
+  const onAbort = () => controller.abort();
+  if (options.signal.aborted) controller.abort();
+  else options.signal.addEventListener('abort', onAbort, { once: true });
+  const timer = setTimeout(() => {
+    timedOut = true;
+    controller.abort();
+  }, options.timeoutMs);
+
+  const started = performance.now();
+  const progress: ReadProgress = { chunks: 0, phase: 'before-first-byte' };
+  const elapsed = () => Math.round(performance.now() - started);
+  try {
+    const res = await fetchImpl(request.url, {
+      method: request.method,
+      headers,
+      body: request.body,
+      signal: controller.signal,
+    });
+    const latencyMs = elapsed();
+
+    if (!res.ok) {
+      const rawText = await res.text().catch(() => '');
+      return {
+        retryable: isRetryable(res.status),
+        timedOut: false,
+        retryAfterMs: retryDelay(res, 0),
+        response: {
+          text: '',
+          error: `HTTP ${res.status}${rawText ? `：${rawText.slice(0, 300)}` : ''}`,
+          httpStatus: res.status,
+          latencyMs,
+          raw: rawText,
+        },
+      };
+    }
+
+    const rawText = await readWithTiming(res, started, progress, controller.signal);
+    const totalMs = elapsed();
+    const contentType = (res.headers.get('content-type') ?? '').toLowerCase();
+    // 有的中转站会忽略 stream:true 直接回 JSON；两种都按实际 body 判定。
+    if (contentType.includes('text/event-stream') || looksLikeSse(rawText)) {
+      const parsed = parseEventStream(rawText, adapter, res.status);
+      const tps = tokensPerSecond(parsed.usage, totalMs, progress.ttftMs);
+      // 断流（HTTP 200 没有 finishReason）：body 读完了，但请求不是正常结束 —— 阶段要写「断在哪」。
+      const phase =
+        parsed.error !== undefined && progress.phase === 'done'
+          ? progress.chunks === 0
+            ? 'before-first-byte'
+            : 'streaming'
+          : progress.phase;
+      return {
+        // 断流不重试：正文已经残缺，再要一次只会把「半截回答」洗掉；它按传输失败记，不当超时。
+        retryable: false,
+        timedOut: false,
+        response: {
+          ...parsed,
+          latencyMs: totalMs,
+          httpStatus: res.status,
+          ...progressOf({ ...progress, phase }),
+          ...(tps !== undefined ? { tokensPerSec: tps } : {}),
+        },
+      };
+    }
+
+    let json: unknown;
+    try {
+      json = JSON.parse(rawText);
+    } catch {
+      return {
+        retryable: false,
+        timedOut: false,
+        response: {
+          text: '',
+          error: `响应不是合法 JSON：${rawText.slice(0, 200)}`,
+          httpStatus: res.status,
+          latencyMs,
+          raw: rawText,
+        },
+      };
+    }
+    // 非流式响应不编造 TTFT：progress 只用于失败时解释「卡在哪一段」。
+    return {
+      retryable: false,
+      timedOut: false,
+      response: {
+        ...adapter.parseChatResponse(json, res.status),
+        raw: json,
+        latencyMs: totalMs,
+        httpStatus: res.status,
+      },
+    };
+  } catch (err) {
+    if (options.signal.aborted) throw new DOMException('aborted', 'AbortError');
+    const latencyMs = elapsed();
+    if (timedOut) {
+      return {
+        // 已收到正文再超时的请求不重试：同一预算下再来一次只会让用户多等一倍，正文早已残缺。
+        retryable: progress.phase === 'before-first-byte',
+        timedOut: true,
+        response: { text: '', error: `请求超时（${options.timeoutMs}ms）`, latencyMs, ...progressOf(progress) },
+      };
+    }
+    const message = err instanceof Error ? err.message : String(err);
+    return {
+      retryable: true,
+      timedOut: false,
+      response: { text: '', error: `网络错误：${message}`, latencyMs, ...progressOf(progress) },
+    };
+  } finally {
+    clearTimeout(timer);
+    options.signal.removeEventListener('abort', onAbort);
+  }
+}
+
 async function execute(
   ep: EndpointConfig,
   initialMessages: ChatMessage[],
   opts: ExecuteOptions,
   fetchImpl: typeof fetch,
-): Promise<ModelResponse> {
+): Promise<TransportResponse> {
   let messages = initialMessages;
   let echoed = false;
   const buildRequest = (msgs: ChatMessage[]) =>
@@ -222,181 +433,58 @@ async function execute(
   const adapter = built.adapter;
   let request = built.request;
   const headers: Record<string, string> = { ...request.headers, ...(opts.headers ?? {}) };
+  const attemptLog: TransportAttempt[] = [];
+  // 首字节前超时只额外重试一次（多半是冷启动/排队），中段超时不重试。
+  let timeoutRetries = 0;
 
   for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
-    const controller = new AbortController();
-    let timedOut = false;
-    const onAbort = () => controller.abort();
-    if (opts.signal.aborted) controller.abort();
-    else opts.signal.addEventListener('abort', onAbort, { once: true });
-    const timer = setTimeout(() => {
-      timedOut = true;
-      controller.abort();
-    }, opts.timeoutMs);
-
-    const started = performance.now();
-    try {
-      const res = await fetchImpl(request.url, {
-        method: request.method,
-        headers,
-        body: request.body,
-        signal: controller.signal,
-      });
-      const latencyMs = Math.round(performance.now() - started);
-
-      if (!res.ok) {
-        const rawText = await res.text().catch(() => '');
-        if (!echoed && res.status === 400 && /reasoning_content/i.test(rawText) && messages.some((m) => m.role === 'assistant')) {
-          echoed = true;
-          messages = withReasoningEcho(messages);
-          request = buildRequest(messages).request;
-          attempt -= 1; // 兼容重试不占重试预算
-          continue;
-        }
-        if (isRetryable(res.status) && attempt < MAX_RETRIES) {
-          await sleep(retryDelay(res, attempt), opts.signal);
-          continue;
-        }
-        return {
-          text: '',
-          error: `HTTP ${res.status}${rawText ? `：${rawText.slice(0, 300)}` : ''}`,
-          httpStatus: res.status,
-          latencyMs,
-          raw: rawText,
-        };
-      }
-
-      const { text: rawText, ttftMs, chunks } = await readWithTiming(res, started);
-      const totalMs = Math.round(performance.now() - started);
-      const contentType = (res.headers.get('content-type') ?? '').toLowerCase();
-      // 有的中转站会忽略 stream:true 直接回 JSON；两种都按实际 body 判定。
-      if (contentType.includes('text/event-stream') || looksLikeSse(rawText)) {
-        const parsed = parseEventStream(rawText, adapter, res.status);
-        const tps = tokensPerSecond(parsed.usage, totalMs, ttftMs);
-        return {
-          ...parsed,
-          latencyMs: totalMs,
-          httpStatus: res.status,
-          ...(ttftMs !== undefined ? { ttftMs } : {}),
-          ...(chunks !== undefined ? { chunks } : {}),
-          ...(tps !== undefined ? { tokensPerSec: tps } : {}),
-        };
-      }
-
-      let json: unknown;
-      try {
-        json = JSON.parse(rawText);
-      } catch {
-        return {
-          text: '',
-          error: `响应不是合法 JSON：${rawText.slice(0, 200)}`,
-          httpStatus: res.status,
-          latencyMs,
-          raw: rawText,
-        };
-      }
-      return {
-        ...adapter.parseChatResponse(json, res.status),
-        raw: json,
-        latencyMs: totalMs,
-        httpStatus: res.status,
-      };
-    } catch (err) {
-      if (opts.signal.aborted) throw new DOMException('aborted', 'AbortError');
-      const latencyMs = Math.round(performance.now() - started);
-      if (timedOut) {
-        return { text: '', error: `请求超时（${opts.timeoutMs}ms）`, latencyMs };
-      }
-      const message = err instanceof Error ? err.message : String(err);
-      if (attempt < MAX_RETRIES) {
-        await sleep(300 * 2 ** attempt, opts.signal);
-        continue;
-      }
-      return { text: '', error: `网络错误：${message}`, latencyMs };
-    } finally {
-      clearTimeout(timer);
-      opts.signal.removeEventListener('abort', onAbort);
-    }
-  }
-
-  return { text: '', error: '重试次数耗尽' };
-}
-
-/** 发一次已构造好的请求（ModelTrace 探针复用同一条传输路径，不新写 HTTP 客户端）。
- * 与 chatOnce 的区别：请求体由调用方（core 探针）构造，这里只负责发送、超时、取消与解析；
- * 单次发送不重试，失败作为 ModelResponse.error 返回，由探针自己记一条无效样本。 */
-export async function sendPrepared(
-  prepared: PreparedRequest,
-  adapter: Adapter,
-  signal: AbortSignal,
-  timeoutMs = 180000,
-  fetchImpl: typeof fetch = fetch,
-): Promise<ModelResponse> {
-  const controller = new AbortController();
-  let timedOut = false;
-  const onAbort = () => controller.abort();
-  if (signal.aborted) controller.abort();
-  else signal.addEventListener('abort', onAbort, { once: true });
-  const timer = setTimeout(() => {
-    timedOut = true;
-    controller.abort();
-  }, timeoutMs);
-
-  const started = performance.now();
-  try {
-    const res = await fetchImpl(prepared.url, {
-      method: prepared.method,
-      headers: prepared.headers,
-      body: prepared.body,
-      signal: controller.signal,
+    const outcome = await attemptOnce(
+      request,
+      adapter,
+      headers,
+      { signal: opts.signal, timeoutMs: opts.timeoutMs },
+      fetchImpl,
+    );
+    const response = outcome.response;
+    attemptLog.push({
+      attempt: attemptLog.length + 1,
+      outcome:
+        response.error === undefined
+          ? 'success'
+          : outcome.timedOut
+            ? 'timeout'
+            : outcome.retryable
+              ? 'retryable'
+              : 'failed',
+      latencyMs: response.latencyMs ?? 0,
+      ...(response.httpStatus !== undefined ? { httpStatus: response.httpStatus } : {}),
+      ...(response.error !== undefined ? { error: response.error } : {}),
     });
-    if (!res.ok) {
-      const rawText = await res.text().catch(() => '');
-      return {
-        text: '',
-        error: `HTTP ${res.status}${rawText ? `：${rawText.slice(0, 300)}` : ''}`,
-        httpStatus: res.status,
-        latencyMs: Math.round(performance.now() - started),
-        raw: rawText,
-      };
+
+    // 兼容重试：不占重试预算，也不写进 attemptLog 之外的地方。
+    if (
+      response.httpStatus === 400 &&
+      !echoed &&
+      /reasoning_content/i.test(String(response.raw ?? '')) &&
+      messages.some((m) => m.role === 'assistant')
+    ) {
+      echoed = true;
+      messages = withReasoningEcho(messages);
+      request = buildRequest(messages).request;
+      attempt -= 1;
+      continue;
     }
 
-    const { text: rawText, ttftMs, chunks } = await readWithTiming(res, started);
-    const totalMs = Math.round(performance.now() - started);
-    const contentType = (res.headers.get('content-type') ?? '').toLowerCase();
-    if (contentType.includes('text/event-stream') || looksLikeSse(rawText)) {
-      const parsed = parseEventStream(rawText, adapter, res.status);
-      return {
-        ...parsed,
-        latencyMs: totalMs,
-        httpStatus: res.status,
-        ...(ttftMs !== undefined ? { ttftMs } : {}),
-        ...(chunks !== undefined ? { chunks } : {}),
-      };
-    }
+    if (response.error === undefined) return { ...response, attempts: attemptLog.length, attemptLog };
 
-    let json: unknown;
-    try {
-      json = JSON.parse(rawText);
-    } catch {
-      return {
-        text: '',
-        error: `响应不是合法 JSON：${rawText.slice(0, 200)}`,
-        httpStatus: res.status,
-        latencyMs: totalMs,
-        raw: rawText,
-      };
-    }
-    return { ...adapter.parseChatResponse(json, res.status), raw: json, latencyMs: totalMs, httpStatus: res.status };
-  } catch (err) {
-    if (signal.aborted) throw new DOMException('aborted', 'AbortError');
-    const latencyMs = Math.round(performance.now() - started);
-    if (timedOut) return { text: '', error: `请求超时（${timeoutMs}ms）`, latencyMs };
-    return { text: '', error: `网络错误：${err instanceof Error ? err.message : String(err)}`, latencyMs };
-  } finally {
-    clearTimeout(timer);
-    signal.removeEventListener('abort', onAbort);
+    const canRetryTimeout = outcome.timedOut && outcome.retryable && timeoutRetries < 1;
+    if (canRetryTimeout) timeoutRetries += 1;
+    const retry = outcome.retryable && (outcome.timedOut ? canRetryTimeout : true) && attempt < MAX_RETRIES;
+    if (!retry) return { ...response, attempts: attemptLog.length, attemptLog };
+    await sleep(outcome.retryAfterMs ?? 300 * 2 ** attempt, opts.signal);
   }
+
+  return { text: '', error: '重试次数耗尽', attempts: attemptLog.length, attemptLog };
 }
 
 /** 发一次 chat 请求；超时/网络错误以 ModelResponse.error 返回，取消则以 AbortError 抛出。 */
@@ -405,7 +493,7 @@ export async function chatOnce(
   question: BankQuestion,
   opts: ChatOptions,
   fetchImpl: typeof fetch = fetch,
-): Promise<ModelResponse> {
+): Promise<TransportResponse> {
   return execute(
     ep,
     buildMessages(question),
@@ -416,6 +504,7 @@ export async function chatOnce(
         'x-llmbm-question-id': question.id,
         'x-llmbm-sample': String(opts.sampleIndex),
         ...(opts.injectFlaky ? { 'x-llmbm-inject': 'flaky' } : {}),
+        ...(opts.fault ? { 'x-llmbm-fault': opts.fault } : {}),
       },
       ...(question.tools !== undefined ? { tools: question.tools } : {}),
       ...(question.request?.maxTokens !== undefined ? { maxTokens: question.request.maxTokens } : {}),
@@ -423,6 +512,34 @@ export async function chatOnce(
     },
     fetchImpl,
   );
+}
+
+/**
+ * 发一次已由调用方构造好的请求（ModelTrace 探针复用同一条传输路径，不新写 HTTP 客户端）。
+ * 与 chatOnce 的区别：请求体来自 core 探针，这里只负责发送、超时、取消与解析；不重试，
+ * 失败作为 ModelResponse.error 返回，由探针自己记一条无效样本。
+ */
+export async function sendPrepared(
+  prepared: PreparedRequest,
+  adapter: Adapter,
+  signal: AbortSignal,
+  timeoutMs = 180000,
+  fetchImpl: typeof fetch = fetch,
+): Promise<TransportResponse> {
+  const outcome = await attemptOnce(prepared, adapter, { ...prepared.headers }, { signal, timeoutMs }, fetchImpl);
+  return {
+    ...outcome.response,
+    attempts: 1,
+    attemptLog: [
+      {
+        attempt: 1,
+        outcome: outcome.response.error === undefined ? 'success' : outcome.timedOut ? 'timeout' : 'failed',
+        latencyMs: outcome.response.latencyMs ?? 0,
+        ...(outcome.response.httpStatus !== undefined ? { httpStatus: outcome.response.httpStatus } : {}),
+        ...(outcome.response.error !== undefined ? { error: outcome.response.error } : {}),
+      },
+    ],
+  };
 }
 
 async function requestModels(request: PreparedRequest, adapter: Adapter, fetchImpl: typeof fetch): Promise<string[]> {

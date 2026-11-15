@@ -19,8 +19,8 @@ import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { EvidenceTable } from '../components/EvidenceTable.js';
 import { LatencyPanel } from '../components/LatencyPanel.js';
-import { ModelTraceCard } from '../components/ModelTraceCard.js';
 import { PageHeader } from '../components/Layout.js';
+import { ModelTraceCard } from '../components/ModelTraceCard.js';
 import { ProbePanel } from '../components/ProbePanel.js';
 import { IntervalBar, ScoreDial, scoreColor } from '../components/Score.js';
 import { SignalsPanel } from '../components/Signals.js';
@@ -106,7 +106,12 @@ export function ResultPage() {
           expected: record.expected,
           cancelled: record.cancelled,
           counts: report.counts,
-          dimensions: report.dimensions.map((d) => ({ dimension: d.dimension, mean: d.stat.mean, halfWidth: d.stat.halfWidth, questions: d.questions })),
+          dimensions: report.dimensions.map((d) => ({
+            dimension: d.dimension,
+            mean: d.stat.mean,
+            halfWidth: d.stat.halfWidth,
+            questions: d.questions,
+          })),
           probes: probes.map((id) => ({ questionId: id })),
         },
       };
@@ -209,6 +214,15 @@ export function ResultPage() {
         description={`半宽来自同一模型多次采样的离散度，不覆盖题库覆盖度与判定口径差异；temperature=0 下采样可能完全一致，± 0.00 不等于高置信。传输失败 ${transportText}，已从能力分聚合剔除，有效采样 ${sampleCounts.valid}/${sampleCounts.total}。`}
       />
 
+      {report.total.n === 0 ? (
+        <Alert
+          type="info"
+          showIcon
+          message="本次没有能力分可算"
+          description="本次只跑了诊断题（超时与响应时延），或没有完成任何能力题。能力分需要至少一道能力题；超时/时延结论见下方「超时与响应时延」，不会把端点慢写成模型差。"
+        />
+      ) : null}
+
       {report.total.halfWidth > 30 ? (
         <Alert
           type="info"
@@ -256,13 +270,16 @@ export function ResultPage() {
               <div>
                 <span>格式命中率</span>
                 <strong>{formatText}</strong>
-                <small>{report.format.hit}/{report.format.total} 题</small>
+                <small>
+                  {report.format.hit}/{report.format.total} 题
+                </small>
               </div>
               <div>
                 <span>稳定性</span>
                 <strong>{(report.stability.rate * 100).toFixed(0)}%</strong>
                 <small>
-                  有效采样 {sampleCounts.valid}/{sampleCounts.total} · {report.stability.completed}/{report.stability.expected} 题完成
+                  有效采样 {sampleCounts.valid}/{sampleCounts.total} · {report.stability.completed}/
+                  {report.stability.expected} 题完成
                 </small>
               </div>
               <div>
@@ -293,7 +310,9 @@ export function ResultPage() {
               <Descriptions.Item label="规则版本">{record.judgeRuleVersion}</Descriptions.Item>
               <Descriptions.Item label="种子">{record.seed}</Descriptions.Item>
               <Descriptions.Item label="每题采样">{record.samples} 次</Descriptions.Item>
-              <Descriptions.Item label="开始时间">{new Date(record.startedAt).toLocaleString('zh-CN')}</Descriptions.Item>
+              <Descriptions.Item label="开始时间">
+                {new Date(record.startedAt).toLocaleString('zh-CN')}
+              </Descriptions.Item>
               <Descriptions.Item label="结束时间">
                 {record.finishedAt ? new Date(record.finishedAt).toLocaleString('zh-CN') : '—'}
               </Descriptions.Item>
@@ -324,7 +343,10 @@ export function ResultPage() {
               <div className="dim-name">{groupLabel(dim.dimension)}</div>
               <div className="dim-body">
                 <div className="dim-track">
-                  <div className="dim-fill" style={{ width: `${dim.stat.mean}%`, background: scoreColor(dim.stat.mean) }} />
+                  <div
+                    className="dim-fill"
+                    style={{ width: `${dim.stat.mean}%`, background: scoreColor(dim.stat.mean) }}
+                  />
                 </div>
                 <IntervalBar mean={dim.stat.mean} halfWidth={dim.stat.halfWidth} />
               </div>
@@ -355,20 +377,31 @@ export function ResultPage() {
         </Col>
         <Col xs={24} md={8}>
           <Card variant="borderless" className="panel stat-card">
-            <Statistic title="请求采样" value={report.total.values.length || record.results.reduce((a, r) => a + r.samples.length, 0)} suffix="次" />
-            <Typography.Text type="secondary">{record.results.length} 道题 · 有效采样 {sampleCounts.valid}/{sampleCounts.total}</Typography.Text>
+            <Statistic
+              title="请求采样"
+              value={report.total.values.length || record.results.reduce((a, r) => a + r.samples.length, 0)}
+              suffix="次"
+            />
+            <Typography.Text type="secondary">
+              {record.results.length} 道题 · 有效采样 {sampleCounts.valid}/{sampleCounts.total}
+            </Typography.Text>
           </Card>
         </Col>
         <Col xs={24} md={8}>
           <Card variant="borderless" className="panel stat-card">
-            <Statistic title="问题探针" value={probes.length} suffix="项" valueStyle={{ color: probes.length ? '#cf3f3f' : '#1f9d63' }} />
+            <Statistic
+              title="问题探针"
+              value={probes.length}
+              suffix="项"
+              valueStyle={{ color: probes.length ? '#cf3f3f' : '#1f9d63' }}
+            />
             <Typography.Text type="secondary">非 pass 题按分数升序</Typography.Text>
           </Card>
         </Col>
       </Row>
 
       <ProbePanel results={record.results} onRetry={(ids) => retryFailed(ids)} busy={busy} />
-      <LatencyPanel results={record.results} />
+      <LatencyPanel run={record} />
       <TimeoutPanel run={record} />
       <SignalsPanel run={record} />
       <ModelTraceCard run={record} pending={modelTracePending} />
@@ -392,13 +425,20 @@ export function ResultPage() {
           description="社区榜单是公开数据。提交后任何人都能按域名和模型查到这条记录。参与是可选的：勾选框默认不勾选，取消勾选则分数只留在本地、不会上传。"
         />
         <Descriptions bordered size="small" column={1}>
-          <Descriptions.Item label="会公开">域名、模型、协议、能力分与区间、格式命中率、稳定性、题库/规则版本、维度分、问题探针题号</Descriptions.Item>
-          <Descriptions.Item label="不会上传">API Key、Base URL 路径、请求头、题目原文、模型响应原文、reasoning、工具调用参数</Descriptions.Item>
+          <Descriptions.Item label="会公开">
+            域名、模型、协议、能力分与区间、格式命中率、稳定性、题库/规则版本、维度分、问题探针题号
+          </Descriptions.Item>
+          <Descriptions.Item label="不会上传">
+            API Key、Base URL 路径、请求头、题目原文、模型响应原文、reasoning、工具调用参数
+          </Descriptions.Item>
           <Descriptions.Item label="本次提交">
-            {record.endpoint.domain} · {record.endpoint.model} · {report.total.mean.toFixed(1)} ± {report.total.halfWidth.toFixed(1)}
+            {record.endpoint.domain} · {record.endpoint.model} · {report.total.mean.toFixed(1)} ±{' '}
+            {report.total.halfWidth.toFixed(1)}
           </Descriptions.Item>
         </Descriptions>
-        {submitError ? <Alert type="error" showIcon message="提交失败" description={submitError} style={{ marginTop: 12 }} /> : null}
+        {submitError ? (
+          <Alert type="error" showIcon message="提交失败" description={submitError} style={{ marginTop: 12 }} />
+        ) : null}
       </Modal>
     </Space>
   );

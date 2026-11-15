@@ -1,14 +1,15 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
+import { classifyTimeout } from '@llmbm/core';
 import { QUESTION_BANK } from '../data/bank.ts';
-import { classifyTimeout, TIMEOUT_CLASSES, timeoutMarkdownBlock, timeoutReportOf } from './timeout.ts';
+import { TIMEOUT_CLASSES, timeoutMarkdownBlock, timeoutReportOf } from './timeoutReport.ts';
 import type { QuestionResult, RunRecord } from './types.ts';
 
 const timeoutOf = (id: string) => QUESTION_BANK.find((q) => q.id === id)?.timeoutMs;
 
 function result(
   questionId: string,
-  samples: { error?: string; httpStatus?: number; latencyMs?: number }[],
+  samples: { error?: string; httpStatus?: number; latencyMs?: number; ttftMs?: number; chunks?: number }[],
 ): QuestionResult {
   return {
     questionId,
@@ -42,41 +43,28 @@ function result(
   };
 }
 
-test('classifyTimeout：状态码优先，超时文案按阶段分类', () => {
-  assert.equal(classifyTimeout({ error: 'HTTP 429', httpStatus: 429 }), 'rate-limit');
-  assert.equal(classifyTimeout({ error: 'HTTP 502', httpStatus: 502 }), 'gateway');
-  assert.equal(classifyTimeout({ error: 'HTTP 500', httpStatus: 500 }), 'unknown');
-  assert.equal(classifyTimeout({ error: '请求超时（30000ms）' }), 'connect');
-  assert.equal(classifyTimeout({ error: '请求超时（30000ms）', httpStatus: 200 }), 'first-token');
-  assert.equal(classifyTimeout({ error: '请求超时（30000ms）', chunks: 4 }), 'mid-stream');
-  assert.equal(classifyTimeout({ error: '网络错误：fetch failed' }), 'unknown');
-});
-
-test('只统计 response.error 存在的采样，类别与 classifyTimeout 一致', () => {
+test('只统计 response.error 存在的采样，归因口径与 core 的 classifyTimeout 一致', () => {
   const results = [
     result('ctx-needle-001', [
       { error: '请求超时（120000ms）', latencyMs: 120001 },
       { error: 'HTTP 429', httpStatus: 429 },
+      { error: '请求超时（120000ms）', latencyMs: 9000, ttftMs: 800 },
       {},
     ]),
   ];
   const report = timeoutReportOf(results, timeoutOf);
-  assert.equal(report.requests, 3);
-  assert.equal(report.samples, 2);
-  assert.equal(report.entries.length, 2);
-
-  for (const entry of report.entries) {
-    assert.equal(
-      entry.class,
-      classifyTimeout({
-        error: entry.error,
-        ...(entry.httpStatus !== undefined ? { httpStatus: entry.httpStatus } : {}),
-      }),
-    );
-    assert.ok(TIMEOUT_CLASSES.includes(entry.class));
-  }
+  assert.equal(report.requests, 4);
+  assert.equal(report.samples, 3);
+  assert.equal(report.byClass.connect, 1);
+  assert.equal(report.byClass['rate-limit'], 1);
+  // 已出首字后中断：core 按 ttftMs 判为流中途，不是首字前
+  assert.equal(report.byClass['mid-stream'], 1);
+  assert.equal(report.byClass['first-token'], 0);
   const total = TIMEOUT_CLASSES.reduce((sum, kind) => sum + report.byClass[kind], 0);
   assert.equal(total, report.samples);
+  for (const entry of report.entries) assert.ok(TIMEOUT_CLASSES.includes(entry.class));
+  // 429 只走 rate-limit，不被当成超时
+  assert.equal(classifyTimeout({ error: 'HTTP 429', httpStatus: 429 }), 'rate-limit');
 });
 
 test('无错误采样 → 空分布，结果页据此整块不渲染', () => {

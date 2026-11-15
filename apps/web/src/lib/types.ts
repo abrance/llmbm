@@ -6,14 +6,15 @@ import type {
   DegradationSummary,
   JudgeCheck,
   ModelFingerprint,
-  ModelResponse,
   ModelTraceResult,
   OutcomeReport,
   QuestionScore,
   QuestionStatus,
   RunSignals,
+  TimeoutClass,
 } from '@llmbm/core';
 import type { BankQuestion } from '../data/bank.js';
+import type { TransportResponse } from './transport.js';
 
 export type RunPhase = 'idle' | 'running' | 'cancelling' | 'done' | 'error';
 
@@ -36,7 +37,8 @@ export interface EndpointSnapshot {
 
 export interface SampleResult {
   index: number;
-  response: ModelResponse;
+  /** 传输层响应：含 attempt 级明细（重试/超时），不属于 core 契约。 */
+  response: TransportResponse;
   checks: JudgeCheck[];
   score: QuestionScore;
   /** 行去重比例，仅作退化信号展示，不参与判分。 */
@@ -50,6 +52,10 @@ export interface QuestionResult {
   judge: string;
   core: boolean;
   weight: number;
+  /** 诊断题（如 group=timeout）：只观测传输，不进能力分、维度分与问题探针。 */
+  diagnostic?: boolean;
+  /** 题库标签（如「短问答」「长输出」「人工复核」），只用于生成可读结论。 */
+  tags?: readonly string[];
   samples: SampleResult[];
   /** 题均值（N 次采样）。 */
   mean: number;
@@ -90,7 +96,7 @@ export interface RunRecord {
 }
 
 /** F14 超时归因（只展示，不进 judge / 能力分）。 */
-export type TimeoutClass = 'connect' | 'first-token' | 'mid-stream' | 'rate-limit' | 'gateway' | 'unknown';
+export type { TimeoutClass };
 
 export interface TimeoutSample {
   questionId: string;

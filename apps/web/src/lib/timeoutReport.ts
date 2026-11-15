@@ -1,17 +1,23 @@
 /**
- * F14 超时归因：只在 `sample.response.error` 存在时给失败采样分类，
- * 结果只用于结果页卡片与导出，**不进 judge / 能力分**。
+ * F14 超时归因的汇总与导出段落（纯函数、不依赖题库，题库元数据由调用方传入）。
  *
- * 归因是浏览器侧对 transport 错误的解释（web 拥有 transport 与展示），不复制 core 的
- * 判分/聚合逻辑；题库里的超时用例分组由 PR #26 维护，本文件不依赖题库。
- * 旧记录没有 `report.timeout`，展示层按「本次未采集」处理。
+ * 归因类别与判定只有 core 一份（`classifyTimeout`）；这里只收集 transport 报上来的进度事实、
+ * 数分布、生成中文标签与 Markdown，不写第二份阈值。
  */
-import type { ModelResponse } from '@llmbm/core';
-import type { QuestionResult, TimeoutClass, TimeoutReport, TimeoutSample } from './types.js';
+import { classifyTimeout, type TimeoutClass } from '@llmbm/core';
+import type { QuestionResult, TimeoutReport, TimeoutSample } from './types.js';
 
-export type { TimeoutClass };
+/* ------------------------------------------------------------------ F14 超时归因 */
 
-export const TIMEOUT_CLASSES: readonly TimeoutClass[] = ['connect', 'first-token', 'mid-stream', 'rate-limit', 'gateway', 'unknown'];
+/** 归因类别与语义只有 core 一份（`classifyTimeout`）；这里只提供展示顺序与中文标签。 */
+export const TIMEOUT_CLASSES: readonly TimeoutClass[] = [
+  'connect',
+  'first-token',
+  'mid-stream',
+  'rate-limit',
+  'gateway',
+  'unknown',
+];
 
 export const TIMEOUT_CLASS_LABEL: Record<TimeoutClass, string> = {
   connect: '连接建立失败',
@@ -22,40 +28,10 @@ export const TIMEOUT_CLASS_LABEL: Record<TimeoutClass, string> = {
   unknown: '其它/未知',
 };
 
-export interface TimeoutInput {
-  error?: string;
-  httpStatus?: number;
-  /** 已拿到首字后是否进入流中；由 transport 提供（拿不到时 undefined）。 */
-  ttftMs?: number;
-  /** 失败前已收到的传输分片数。 */
-  chunks?: number;
-}
-
-const TIMEOUT_PATTERN = /timeout|timed out|超时|ETIMEDOUT|AbortError|operation was aborted/i;
-
 /**
- * 给一条失败采样归因。状态码优先（429 / 502-504），超时文案再按已收到的分片/首字
- * 区分「连接阶段 / 首字前 / 流中途」；不是超时文案的失败返回 unknown，保留原始错误。
+ * 逐采样归因：分类交给 core 的 `classifyTimeout`，这里只收集 transport 报上来的进度事实。
+ * 没有错误采样时返回空分布（展示层据此整块不渲染）。
  */
-export function classifyTimeout(input: TimeoutInput): TimeoutClass {
-  const { httpStatus, error = '', ttftMs, chunks } = input;
-  if (httpStatus === 429) return 'rate-limit';
-  if (httpStatus === 502 || httpStatus === 503 || httpStatus === 504) return 'gateway';
-  if (!TIMEOUT_PATTERN.test(error)) return 'unknown';
-  if (ttftMs !== undefined || (chunks ?? 0) > 0) return 'mid-stream';
-  if (httpStatus !== undefined) return 'first-token';
-  return 'connect';
-}
-
-function responseTiming(response: ModelResponse): Pick<TimeoutInput, 'ttftMs' | 'chunks'> {
-  return {
-    ...(response.ttftMs !== undefined ? { ttftMs: response.ttftMs } : {}),
-    ...(response.chunks !== undefined ? { chunks: response.chunks } : {}),
-  };
-}
-
-/** 逐采样归因；没有错误采样时返回空分布（展示层据此不渲染）。
- * `timeoutOf` 由调用方提供（题库在 data/bank.ts），lib 不直接依赖题库以便单测。 */
 export function timeoutReportOf(
   results: readonly QuestionResult[],
   timeoutOf: (questionId: string) => number | undefined = () => undefined,
@@ -67,14 +43,19 @@ export function timeoutReportOf(
   for (const result of results) {
     for (const sample of result.samples) {
       requests += 1;
-      const error = sample.response.error;
+      const response = sample.response;
+      const error = response.error;
       if (!error) continue;
       const timeoutMs = timeoutOf(result.questionId);
-      const response = sample.response;
       const kind = classifyTimeout({
         error,
         ...(response.httpStatus !== undefined ? { httpStatus: response.httpStatus } : {}),
-        ...responseTiming(response),
+        ...(response.latencyMs !== undefined ? { latencyMs: response.latencyMs } : {}),
+        ...(response.ttftMs !== undefined ? { ttftMs: response.ttftMs } : {}),
+        ...(response.lastChunkAtMs !== undefined ? { lastChunkAtMs: response.lastChunkAtMs } : {}),
+        ...(response.chunks !== undefined ? { chunks: response.chunks } : {}),
+        ...(response.phase !== undefined ? { phase: response.phase } : {}),
+        ...(timeoutMs !== undefined ? { timeoutMs } : {}),
       });
       byClass[kind] += 1;
       entries.push({
@@ -113,7 +94,9 @@ export function timeoutMarkdownBlock(report: TimeoutReport | undefined): string[
   lines.push('| 类别 | 次数 | 占错误采样 |');
   lines.push('|---|---|---|');
   for (const kind of TIMEOUT_CLASSES) {
-    lines.push(`| ${TIMEOUT_CLASS_LABEL[kind]} | ${report.byClass[kind]} | ${(timeoutShare(report, kind) * 100).toFixed(0)}% |`);
+    lines.push(
+      `| ${TIMEOUT_CLASS_LABEL[kind]} | ${report.byClass[kind]} | ${(timeoutShare(report, kind) * 100).toFixed(0)}% |`,
+    );
   }
   lines.push('');
   lines.push('按题归因：');

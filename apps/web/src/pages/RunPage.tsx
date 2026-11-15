@@ -99,7 +99,8 @@ export function RunPage() {
   const failed = run ? failedIds(run.results).length : 0;
   const cpMatches =
     checkpoint && endpoint
-      ? checkpoint.endpoint.baseUrl === endpoint.baseUrl.replace(/\/+$/, '') && checkpoint.endpoint.model === endpoint.model
+      ? checkpoint.endpoint.baseUrl === endpoint.baseUrl.replace(/\/+$/, '') &&
+        checkpoint.endpoint.model === endpoint.model
       : false;
 
   function onStart() {
@@ -155,9 +156,7 @@ export function RunPage() {
         subtitle="选分组、固定 seed、每题采样 3 次。跑测在 Web Worker 里执行，切到后台标签页也不会停；刷新页面后用断点继续。"
         extra={
           <Space>
-            {run ? (
-              <Button onClick={() => navigate('/result')}>查看上次结果</Button>
-            ) : null}
+            {run ? <Button onClick={() => navigate('/result')}>查看上次结果</Button> : null}
             {run && failed > 0 ? (
               <Button onClick={() => retryFailed()} disabled={busy}>
                 补测失败题（{failed}）
@@ -202,7 +201,9 @@ export function RunPage() {
           message={`判定规则覆盖 ${availableJudges.length}/${JUDGE_KINDS.length} 类`}
           description={
             <span>
-              其余判定由 core 团队合入。默认只跑可判定的题；打开「包含未上线判定」会把它们一起跑，未实现的判定会按硬失败记 0 分，只建议在核对规则时使用。
+              其余判定由 core
+              团队合入。默认只跑可判定的题；打开「包含未上线判定」会把它们一起跑，未实现的判定会按硬失败记 0
+              分，只建议在核对规则时使用。
             </span>
           }
         />
@@ -212,7 +213,11 @@ export function RunPage() {
         <Col xs={24} lg={15}>
           <Space direction="vertical" size={20} style={{ width: '100%' }}>
             <SectionCard title="1. 选题组" hint="分组对应不同的产品问题；精选补测适合上线前复核高风险项。">
-              <Checkbox.Group value={groups} onChange={(values) => setGroups(values as string[])} style={{ width: '100%' }}>
+              <Checkbox.Group
+                value={groups}
+                onChange={(values) => setGroups(values as string[])}
+                style={{ width: '100%' }}
+              >
                 <Row gutter={[12, 12]}>
                   {groupStats.map((stat) => {
                     const checked = groups.includes(stat.key);
@@ -242,7 +247,10 @@ export function RunPage() {
                 <Button size="small" onClick={() => setGroups([...GROUP_ORDER])}>
                   全选
                 </Button>
-                <Button size="small" onClick={() => setGroups(groupStats.filter((s) => s.runnable > 0).map((s) => s.key))}>
+                <Button
+                  size="small"
+                  onClick={() => setGroups(groupStats.filter((s) => s.runnable > 0).map((s) => s.key))}
+                >
                   仅可选可跑
                 </Button>
                 <Button size="small" onClick={() => setGroups([])}>
@@ -256,7 +264,12 @@ export function RunPage() {
                 <Col xs={24} md={10}>
                   <label className="field-label">随机种子</label>
                   <Space.Compact style={{ width: '100%' }}>
-                    <Input value={seed} onChange={(e) => setSeed(e.target.value)} placeholder="留空则随机" spellCheck={false} />
+                    <Input
+                      value={seed}
+                      onChange={(e) => setSeed(e.target.value)}
+                      placeholder="留空则随机"
+                      spellCheck={false}
+                    />
                     <Button onClick={() => setSeed(randomSeed())}>换一个</Button>
                   </Space.Compact>
                 </Col>
@@ -310,13 +323,15 @@ export function RunPage() {
               >
                 <Space direction="vertical" size={4} style={{ width: '100%' }}>
                   <Typography.Text>
-                    <code>{checkpoint.runId}</code> · {Object.keys(checkpoint.done).length}/{checkpoint.expected} 题 · seed{' '}
-                    <code>{checkpoint.seed}</code> · {checkpoint.samples} 次采样
+                    <code>{checkpoint.runId}</code> · {Object.keys(checkpoint.done).length}/{checkpoint.expected} 题 ·
+                    seed <code>{checkpoint.seed}</code> · {checkpoint.samples} 次采样
                   </Typography.Text>
                   <Typography.Text type="secondary">
                     模型 {checkpoint.endpoint.model} · 更新于 {new Date(checkpoint.updatedAt).toLocaleString('zh-CN')}
                   </Typography.Text>
-                  {!cpMatches ? <Typography.Text type="danger">当前接入配置与断点不一致，先切回原模型再继续。</Typography.Text> : null}
+                  {!cpMatches ? (
+                    <Typography.Text type="danger">当前接入配置与断点不一致，先切回原模型再继续。</Typography.Text>
+                  ) : null}
                 </Space>
               </SectionCard>
             ) : null}
@@ -357,7 +372,14 @@ export function RunPage() {
                     : endpoint.baseUrl.replace(/^https?:\/\//, '').split('/')[0]}
                 </strong>
               </div>
-              <Button type="primary" block size="large" onClick={onStart} disabled={busy || planned === 0} style={{ marginTop: 16 }}>
+              <Button
+                type="primary"
+                block
+                size="large"
+                onClick={onStart}
+                disabled={busy || planned === 0}
+                style={{ marginTop: 16 }}
+              >
                 {busy ? '跑测中…' : '开始跑测'}
               </Button>
               <Typography.Paragraph type="secondary" style={{ fontSize: 12, margin: '10px 0 0' }}>
@@ -385,11 +407,20 @@ export function RunPage() {
                     <Statistic title="预估剩余" value={eta === undefined ? '—' : formatDuration(eta)} />
                   </Col>
                   <Col span={12} style={{ marginTop: 12 }}>
-                    <Statistic title="当前采样" value={`${Math.min(progress.sampleIndex + 1, progress.samples)}/${progress.samples}`} />
+                    <Statistic
+                      title="当前采样"
+                      value={`${Math.min(progress.sampleIndex + 1, progress.samples)}/${progress.samples}`}
+                    />
                   </Col>
                 </Row>
                 <div className="current-question">
-                  {phase === 'cancelling' ? '正在取消，等待当前请求 abort…' : <>当前：<code>{progress.questionId ?? '准备中'}</code></>}
+                  {phase === 'cancelling' ? (
+                    '正在取消，等待当前请求 abort…'
+                  ) : (
+                    <>
+                      当前：<code>{progress.questionId ?? '准备中'}</code>
+                    </>
+                  )}
                 </div>
                 <Button danger block onClick={cancel} disabled={phase !== 'running'}>
                   取消跑测（真 abort）

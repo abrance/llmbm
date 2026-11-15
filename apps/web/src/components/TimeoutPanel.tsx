@@ -3,7 +3,7 @@
  * 无错误时整块不渲染；旧记录（无 report.timeout）显示「本次未采集」。
  */
 import { Card, Col, Progress, Row, Space, Tag, Typography } from 'antd';
-import { TIMEOUT_CLASSES, TIMEOUT_CLASS_LABEL, timeoutShare } from '../lib/timeout.js';
+import { TIMEOUT_CLASSES, TIMEOUT_CLASS_LABEL, timeoutShare } from '../lib/timeoutReport.js';
 import type { RunRecord } from '../lib/types.js';
 
 export function TimeoutPanel({ run }: { run: RunRecord }) {

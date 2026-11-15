@@ -4,7 +4,6 @@
  */
 import {
   JUDGE_RULE_VERSION,
-  aggregate,
   defaultRegistry,
   loadModelTraceBank,
   questionBankVersion,
@@ -15,10 +14,11 @@ import { resolveAdapter } from '@llmbm/core/adapters';
 import type { EndpointConfig } from '@llmbm/core';
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { BANK_VERSION, QUESTION_BANK, type BankQuestion } from '../data/bank.js';
+import { aggregateRun, scoredResults } from '../lib/aggregateRun.js';
 import { deleteCheckpoint, latestCheckpoint, latestRun, saveCheckpoint, saveRun } from '../lib/db.js';
 import { domainOf, sendPrepared } from '../lib/transport.js';
 import { failedIds } from '../lib/metrics.js';
-import { timeoutReportOf } from '../lib/timeout.js';
+import { timeoutReportOf } from '../lib/timeoutReport.js';
 import { signalsOf } from '../lib/signals.js';
 import type {
   EndpointSnapshot,
@@ -108,7 +108,7 @@ export function RunProvider({ children }: { children: ReactNode }) {
     return () => {
       alive = false;
     };
-  }, []);
+  }, [setCurrentRun]);
 
   useEffect(
     () => () => {
@@ -220,19 +220,14 @@ export function RunProvider({ children }: { children: ReactNode }) {
           return;
         }
 
-        const weights: Record<string, number> = {};
-        for (const q of QUESTION_BANK) weights[q.id] = q.weight ?? 1;
-        const report = merge
-          ? aggregate({
-              scores: allResults.flatMap((r) => r.samples.map((s) => s.score)),
-              expectedQuestions: merge.expected,
-              weights,
-              samplesPerQuestion: cfg.samples,
-            })
-          : msg.report;
+        // 诊断题（group=timeout）不进能力分：补测重算时与 worker 走同一份组装（lib/aggregateRun）。
+        const scored = scoredResults(allResults);
+        // 补测重算沿用原卷的能力题「应跑题数」，避免诊断题或补测子集把完成率分母算错。
+        const report = merge ? aggregateRun(allResults, cfg.samples, merge.report.stability.expected) : msg.report;
         // F14：超时归因只是报告附加块，不改 report 的任何分数。
         const reportWithTimeout = { ...report, timeout: timeoutReportOf(allResults, (id) => TIMEOUT_OF.get(id)) };
 
+        const shouldProbe = cfg.modelTrace && !msg.cancelled;
         const record: RunRecord = {
           runId: cfg.runId,
           seed: cfg.seed,
@@ -248,17 +243,16 @@ export function RunProvider({ children }: { children: ReactNode }) {
           results: allResults,
           report: reportWithTimeout,
           // F9/F10 跟着「合并后的全量结果」走：补测只跑了失败题，直接用 msg.signals
-          // 会只覆盖那几道题，所以合并路径重算一次（口径仍在 core）。
-          ...(merge ? signalsOf(allResults) : msg.signals),
+          // 会只覆盖那几道题，所以合并路径重算一次（口径仍在 core）。诊断题同样不参与弱信号。
+          ...(merge ? signalsOf(scored) : msg.signals),
           injectFlaky: cfg.injectFlaky,
           ...(msg.abortReason ? { abortReason: msg.abortReason } : {}),
           ...(msg.notices ? { notices: msg.notices } : {}),
           ...(merge ? { retriedAt: new Date().toISOString() } : {}),
           ...(merge?.modelTrace ? { modelTrace: merge.modelTrace } : {}),
           ...(merge?.modelTraceRequested ? { modelTraceRequested: true } : {}),
+          ...(shouldProbe ? { modelTraceRequested: true } : {}),
         };
-        const shouldProbe = cfg.modelTrace && !msg.cancelled;
-        if (shouldProbe) record.modelTraceRequested = true;
         setCurrentRun(record);
         setPhase('done');
         if (!msg.cancelled) {
