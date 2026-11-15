@@ -80,7 +80,7 @@ test('mock stall：HTTP 200 停在两片之后，超时带回 phase/chunks/lastC
   assert.equal(out.attempts, 1);
 });
 
-test('mock hang：一个字节都不发，首字前超时只重试一次并保留 attempt 明细', async (t) => {
+test('mock hang：连接建立了但一个字节都不回，归 connect 且只重试一次', async (t) => {
   const { server, endpoint } = await startMock();
   t.after(() => {
     server.closeAllConnections();
@@ -90,8 +90,9 @@ test('mock hang：一个字节都不发，首字前超时只重试一次并保�
   const out = await chatOnce(endpoint, question({ id: 'timeout-hang-001', timeoutMs: 300 }), options('hang'));
 
   assert.match(String(out.error), /请求超时/);
-  assert.equal(out.phase, 'before-first-byte');
-  assert.equal(out.chunks, 0);
+  // 没拿到响应头就超时：不带 phase，归 connect（不再冒充「首字前」）。
+  assert.equal(out.phase, undefined);
+  assert.equal(out.chunks, undefined);
   assert.equal(out.attempts, 2);
   assert.deepEqual(
     out.attemptLog?.map((attempt) => attempt.outcome),

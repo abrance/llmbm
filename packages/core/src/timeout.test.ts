@@ -27,6 +27,14 @@ test('classifyTimeout：非超时文案返回 unknown，不硬塞进超时统计
   assert.equal(classifyTimeout({}), 'unknown');
 });
 
+test('classifyTimeout：5xx 响应体写超时归 gateway，不是 first-token', () => {
+  assert.equal(classifyTimeout({ error: 'HTTP 500：upstream timeout', httpStatus: 500 }), 'gateway');
+  assert.equal(classifyTimeout({ error: 'HTTP 501：ETIMEDOUT', httpStatus: 501 }), 'gateway');
+  assert.equal(classifyTimeout({ error: 'HTTP 505：gateway timed out', httpStatus: 505 }), 'gateway');
+  // 5xx 但不是超时文案（如鉴权/参数错）仍归 unknown，不算网关超时
+  assert.equal(classifyTimeout({ error: 'HTTP 500：invalid api key', httpStatus: 500 }), 'unknown');
+});
+
 test('percentile：nearest-rank，n=1 时各分位相等，空数组 undefined', () => {
   assert.equal(percentile([], 50), undefined);
   assert.equal(percentile([42], 50), 42);

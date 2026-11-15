@@ -42,6 +42,8 @@ export function classifyTimeout(input: TimeoutInput): TimeoutClass {
   if (httpStatus === 429) return 'rate-limit';
   if (httpStatus === 502 || httpStatus === 503 || httpStatus === 504) return 'gateway';
   if (!TIMEOUT_PATTERN.test(error)) return 'unknown';
+  // 5xx 响应体写的是超时（如 HTTP 500: upstream timeout）：问题在上游网关，不是模型端出字慢。
+  if (httpStatus !== undefined && httpStatus >= 500) return 'gateway';
   if (phase === 'streaming' || ttftMs !== undefined || (chunks ?? 0) > 0) return 'mid-stream';
   if (phase === 'before-first-byte' || httpStatus !== undefined) return 'first-token';
   return 'connect';

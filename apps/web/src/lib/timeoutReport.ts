@@ -20,7 +20,7 @@ export const TIMEOUT_CLASSES: readonly TimeoutClass[] = [
 ];
 
 export const TIMEOUT_CLASS_LABEL: Record<TimeoutClass, string> = {
-  connect: '连接建立失败',
+  connect: '连接/响应前',
   'first-token': '首字前超时',
   'mid-stream': '流中途断掉',
   'rate-limit': '限流',
