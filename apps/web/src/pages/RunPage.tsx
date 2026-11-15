@@ -20,7 +20,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { PageHeader, SectionCard } from '../components/Layout.js';
 import { JUDGE_KINDS } from '@llmbm/core';
-import { GROUP_META, GROUP_ORDER, QUESTION_BANK } from '../data/bank.js';
+import { DEFAULT_GROUPS, GROUP_META, GROUP_ORDER, QUESTION_BANK } from '../data/bank.js';
 import { MOCK_AVAILABLE } from '../lib/build.js';
 import { etaMs, failedIds, formatDuration, progressPercent } from '../lib/metrics.js';
 import { isMockBase } from '../lib/transport.js';
@@ -49,7 +49,7 @@ export function RunPage() {
     retryFailed,
   } = useRun();
 
-  const [groups, setGroups] = useState<string[]>([...GROUP_ORDER]);
+  const [groups, setGroups] = useState<string[]>([...DEFAULT_GROUPS]);
   const [seed, setSeed] = useState(randomSeed);
   const [samples, setSamples] = useState(3);
   const [includeUnavailable, setIncludeUnavailable] = useState(false);

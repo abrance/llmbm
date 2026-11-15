@@ -1,14 +1,14 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { JUDGE_KINDS, buildMessages, summarizeQuestion } from '@llmbm/core';
-import { BANK_VERSION, GROUP_ORDER, QUESTION_BANK } from './bank.ts';
+import { BANK_VERSION, DEFAULT_GROUPS, GROUP_ORDER, QUESTION_BANK } from './bank.ts';
 
 test('题库文件可加载，版本与题目数符合本次交付', () => {
   assert.match(BANK_VERSION, /^qb-/);
-  assert.equal(QUESTION_BANK.length, 64);
+  assert.equal(QUESTION_BANK.length, 74);
 });
 
-test('spec §1 F3 六个分组都有题', () => {
+test('spec §1 F3 分组都有题', () => {
   for (const group of GROUP_ORDER) {
     const count = QUESTION_BANK.filter((q) => q.group === group).length;
     assert.ok(count >= 5, `${group} 只有 ${count} 题`);
@@ -28,16 +28,24 @@ test('每类 judge 至少 2 题（正例 + 难点各一）', () => {
   }
 });
 
-test('题目 id 唯一、必填字段齐全、分数权重为正', () => {
+test('题目 id 唯一、必填字段齐全、分数权重非负', () => {
   const ids = new Set<string>();
   for (const q of QUESTION_BANK) {
     assert.ok(!ids.has(q.id), `重复 id: ${q.id}`);
     ids.add(q.id);
     assert.ok(q.prompt.trim().length > 0, `${q.id} 没有 prompt`);
     assert.ok((q.timeoutMs ?? 0) > 0, `${q.id} 没有超时`);
-    assert.ok((q.weight ?? 1) > 0, `${q.id} 权重非法`);
+    assert.ok((q.weight ?? 1) >= 0, `${q.id} 权重非法`);
   }
   assert.ok(QUESTION_BANK.some((q) => q.core === true), '至少要有 core 题');
+});
+
+test('timeout 组只观测不评分：全部 weight=0，且默认不勾选', () => {
+  const timeout = QUESTION_BANK.filter((q) => q.group === 'timeout');
+  assert.ok(timeout.length >= 5, `timeout 组只有 ${timeout.length} 题`);
+  for (const q of timeout) assert.equal(q.weight, 0, `${q.id} 应 weight=0（只做传输观测，不进能力分）`);
+  assert.ok(!DEFAULT_GROUPS.includes('timeout'), 'timeout 组不能进默认勾选分组');
+  assert.deepEqual(DEFAULT_GROUPS, GROUP_ORDER.filter((group) => group !== 'timeout'));
 });
 
 test('每题都有 description（用例说明），供题库页与证据链展示', () => {
@@ -87,5 +95,19 @@ test('exact 题的 mock 答案与 expect 完全一致（演示可满分）', () 
   for (const q of QUESTION_BANK.filter((item) => item.judge === 'exact')) {
     const expected = typeof q.expect === 'object' && q.expect !== null && 'value' in q.expect ? String(q.expect.value) : String(q.expect);
     assert.equal((q.mock?.text ?? '').trim(), expected.trim(), `${q.id} 的 mock 与 expect 不一致`);
+  }
+});
+
+test('超时与响应时延分组：至少 8 题、每题有 description 与超时预算', () => {
+  const group = QUESTION_BANK.filter((q) => q.group === 'timeout');
+  assert.ok(group.length >= 8, `timeout 只有 ${group.length} 题`);
+  for (const q of group) {
+    assert.ok((q.description ?? '').trim().length >= 10, `${q.id} 缺 description`);
+    assert.ok((q.timeoutMs ?? 0) > 0, `${q.id} 没有超时预算`);
+  }
+  // 覆盖 brief 要求的坏法：首字慢 / 挂起 / 流式卡死 / 滴流 / 长输出 / 短问答 / 并发
+  const tags = new Set(group.flatMap((q) => q.tags ?? []));
+  for (const tag of ['首字慢', '挂起', '断流', '滴流', '长输出', '短问答', '并发']) {
+    assert.ok(tags.has(tag), `timeout 分组缺少「${tag}」类用例`);
   }
 });
