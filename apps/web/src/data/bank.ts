@@ -36,7 +36,7 @@ export interface GroupMeta {
   goal: string;
 }
 
-export const GROUP_ORDER = ['basic', 'ability', 'adversarial', 'endurance', 'advanced', 'spotlight', 'context'] as const;
+export const GROUP_ORDER = ['basic', 'ability', 'adversarial', 'endurance', 'advanced', 'spotlight', 'context', 'timeout'] as const;
 
 export const GROUP_META: Record<string, GroupMeta> = {
   basic: {
@@ -73,6 +73,11 @@ export const GROUP_META: Record<string, GroupMeta> = {
     label: '上下文与参数',
     hint: '多轮、长输入、max_tokens、工具回填、图片、误杀',
     goal: '抓「单轮能答、多轮就崩」的端点：丢 system、丢历史、假长上下文、忽略参数、丢图片。',
+  },
+  timeout: {
+    label: '超时与响应时延',
+    hint: '首字慢、挂起、流式卡死、滴流、长输出超预算、短问答超时',
+    goal: '把「慢」拆成可归因的几类：是这题太重，还是整个端点在排队；是首字慢，还是总时长超预算。',
   },
 };
 

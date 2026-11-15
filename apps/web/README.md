@@ -28,7 +28,8 @@
 | 进阶 advanced | 7 | 1 | function-call, tool-args, pelican-svg, json-schema, ordering, json | Agent 场景：工具选择与参数 |
 | 精选补测 spotlight | 6 | 1 | function-call, tool-args, conflict, refusal, pelican-svg, exact | 高风险项上线前复核 |
 | 上下文与参数 context | 15 | 2 | regex, exact, json, max-tokens, contains, refusal | 丢 system、丢历史、假长上下文、忽略 max_tokens、丢图片、误杀拒答 |
-| **合计** | **64** | **10** | **20 类全覆盖** | |
+| 超时与响应时延 timeout | 10 | 0 | exact, long-output, contains | 首字慢、彻底挂起、流式卡死、滴流、长输出超预算、短问答超时、长尾 p95、并发（人工复核） |
+| **合计** | **74** | **10** | **20 类全覆盖** | |
 
 core 题（答错该题直接 0，§2.3）：`basic-exact-001`、`basic-contains-001`、`basic-json-001`、`basic-schema-001`、
 `adv-not-001`、`adv-refusal-001`、`adv2-function-001`、`spot-refusal-001`、
@@ -84,5 +85,6 @@ npm run build -w @llmbm/web        # tsc + vite build（含 worker chunk）
 - **协议适配**：请求构造（URL / 请求体 / 鉴权头）与响应解析（非流式 JSON / SSE / usage / tool_calls）全部走 `packages/core/src/adapters/**`，`apps/web/src/lib/transport.ts` 只保留 fetch、超时、真取消、429/5xx 退避。三种协议的工具声明都由 core 映射（`ChatRequest.tools`：openai 原样透传、anthropic `input_schema`、gemini `functionDeclarations`），web 侧不再按协议改写请求体。
 - **判定实现**：core 已注册全部 20 类 judge（`missingJudges()` 返回空数组），题库 49 题都跑在真实判定上；「包含未上线判定」开关只作为核对题库的兜底。
 - **计分**：硬检查失败 / core 题未全对先置 0，`wrapped` 保底只在「有内容、非硬失败、非参数错」时生效，0 分不会再被抬回 85（`packages/core/src/scoring/index.ts`，dc67f52）。
+- **超时与响应时延（v0.4）**：`lib/latency.ts` 是唯一的时延统计口径（nearest-rank p50/p95/max、超时率、同端点其他题中位对比、可读结论），`lib/latencyReport.ts` 只做「题库元数据 + 采样计时」拼装；结果页 `LatencyPanel` 与 Markdown 导出共用这一份。超时只认 transport 的「请求超时」文案，断流/网络错误单独计数；失败采样不参与分位数；0 采样与 timeoutMs=0 都有明确定义。
 - **F9 家族指纹 / F10 退化检测**：core 提供 `runSignalsOf()`（一次跑测的指纹 + 退化汇总），特征与阈值全在 `packages/core/src/fingerprint/index.ts`；web 只做「按题分组 + 剔除传输失败采样」后调用，不再自己算一份。两者都是**弱信号**：`weak:true` + `caveat` 必与数值同屏，`confidence` 不是降智概率。**基线尚未持久化**，所以 `verdict` 恒为 `insufficient-data`，只能看本次形态、不能判定「换了模型」。
 - **Docker 镜像**：`deploy/Dockerfile` 单镜像已实构建并在本机 8080 验收（`docker compose up -d --build`）；CI 的 `build.yml` 为手动触发，默认只验证构建、不推 GHCR。

@@ -4,6 +4,8 @@
 import { formatStat } from '@llmbm/core';
 import { groupLabel } from '../data/bank.js';
 import { probesOf } from './metrics.js';
+import { latencyMarkdownBlock } from './latencyMarkdown.js';
+import { latencyReportOf } from './latencyReport.js';
 import { signalMarkdownBlock } from './signals.js';
 import type { RunRecord } from './types.js';
 
@@ -96,6 +98,11 @@ export function exportMarkdown(run: RunRecord): string {
   lines.push('## 家族指纹（弱信号）');
   lines.push('');
   lines.push(...signalMarkdownBlock(run));
+  lines.push('');
+
+  lines.push('## 超时与响应时延');
+  lines.push('');
+  lines.push(...latencyMarkdownBlock(latencyReportOf(run.results)));
   lines.push('');
 
   lines.push('## 问题探针');

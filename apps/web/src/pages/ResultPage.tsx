@@ -18,6 +18,7 @@ import {
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { EvidenceTable } from '../components/EvidenceTable.js';
+import { LatencyPanel } from '../components/LatencyPanel.js';
 import { PageHeader } from '../components/Layout.js';
 import { ProbePanel } from '../components/ProbePanel.js';
 import { IntervalBar, ScoreDial, scoreColor } from '../components/Score.js';
@@ -343,6 +344,7 @@ export function ResultPage() {
       </Row>
 
       <ProbePanel results={record.results} onRetry={(ids) => retryFailed(ids)} busy={busy} />
+      <LatencyPanel results={record.results} />
       <SignalsPanel run={record} />
       <EvidenceTable run={record} onRetry={(ids) => retryFailed(ids)} busy={busy} />
 

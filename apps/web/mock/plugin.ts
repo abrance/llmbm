@@ -9,6 +9,7 @@ import type { Plugin } from 'vite';
 
 interface MockQuestion {
   id: string;
+  group?: string;
   mock?: { text?: string; toolCalls?: { name: string; arguments: string }[]; finishReason?: string };
 }
 
@@ -19,6 +20,14 @@ interface BankFile {
 const BANK_PATH = new URL('../../../packages/core/src/data/questions.json', import.meta.url);
 const bank = JSON.parse(readFileSync(BANK_PATH, 'utf8')) as BankFile;
 const answers = new Map(bank.questions.map((q) => [q.id, q.mock]));
+const groups = new Map(bank.questions.map((q) => [q.id, q.group]));
+
+/** 超时组的首字延迟（ms）：让 E2E 能看到 TTFT，不是真实模型的性能。 */
+const TIMEOUT_FIRST_CHUNK: Record<string, number> = {
+  'timeout-ttft-001': 1200,
+  'timeout-heartbeat-001': 400,
+  'timeout-short-001': 150,
+};
 
 function sendJson(res: ServerResponse, status: number, body: unknown): void {
   const payload = JSON.stringify(body);
@@ -63,6 +72,49 @@ function mockAnswer(
   };
 }
 
+/**
+ * 超时组的演示流：首字延迟按题配置，正文切成 3 片。只用于本地演示与 E2E，
+ * 不模拟真实超时（挂起题在 Mock 里也会正常返回，避免本地验收白等 45 秒）。
+ */
+function sendTimeoutStream(
+  res: ServerResponse,
+  questionId: string,
+  text: string,
+  sample: number,
+): void {
+  res.statusCode = 200;
+  res.setHeader('content-type', 'text/event-stream; charset=utf-8');
+  res.setHeader('cache-control', 'no-store');
+  res.setHeader('connection', 'keep-alive');
+  const first = (TIMEOUT_FIRST_CHUNK[questionId] ?? 60) + sample * 10;
+  const chunks = text.match(/[\s\S]{1,40}/g) ?? [text];
+  const frame = (delta: string, finish?: string) => {
+    const payload = { choices: [{ delta: { content: delta }, ...(finish ? { finish_reason: finish } : {}) }] };
+    res.write(`data: ${JSON.stringify(payload)}\n\n`);
+  };
+  const timers: NodeJS.Timeout[] = [];
+  timers.push(
+    setTimeout(() => {
+      frame('');
+      chunks.forEach((chunk, index) => {
+        timers.push(
+          setTimeout(() => {
+            frame(chunk);
+            if (index === chunks.length - 1) {
+              res.write(`data: ${JSON.stringify({ choices: [{ delta: {}, finish_reason: 'stop' }], usage: usageOf('', text) })}\n\n`);
+              res.write('data: [DONE]\n\n');
+              res.end();
+            }
+          }, 30 * (index + 1)),
+        );
+      });
+    }, first),
+  );
+  res.on('close', () => {
+    for (const timer of timers) clearTimeout(timer);
+  });
+}
+
 function handler(req: IncomingMessage, res: ServerResponse, next: (err?: unknown) => void): void {
   const url = (req.url ?? '').split('?')[0] ?? '';
   if (!url.startsWith('/__mock/')) {
@@ -100,6 +152,19 @@ function handler(req: IncomingMessage, res: ServerResponse, next: (err?: unknown
         const answer = mockAnswer(questionId, sample, flaky);
         const text = answer.text;
         const delay = 25 + ((questionId.length * 13 + Number(sample) * 7) % 55);
+        // 故障注入时让「彻底挂起」题真的不返回：用来在本地演示/验收超时结论（默认关闭，避免每次验收白等）。
+        if (flaky && questionId === 'timeout-hang-001') {
+          res.statusCode = 200;
+          res.setHeader('content-type', 'text/event-stream; charset=utf-8');
+          res.setHeader('cache-control', 'no-store');
+          res.write(': keepalive\n\n');
+          return;
+        }
+        // 超时组用 SSE 分片返回：只有流式响应才有 TTFT 与分片数，E2E 才能验证时延结论。
+        if (groups.get(questionId) === 'timeout') {
+          sendTimeoutStream(res, questionId, text, Number(sample));
+          return;
+        }
         setTimeout(() => {
           const message: Record<string, unknown> = { role: 'assistant', content: answer.toolCalls ? null : text };
           if (answer.toolCalls) {
