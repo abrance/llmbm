@@ -26,9 +26,14 @@
   replay 回归是库内样本回放（70 模型 × 3 条，top-1 100%），属 in-sample 回归值，不是线上泛化准确率。
 
 ### 新增（v0.4 超时归因）
-- **超时归因（只展示、不进分）**：`apps/web/src/lib/timeout.ts` 只对 `response.error` 采样分类——
-  connect / first-token / mid-stream / rate-limit / gateway / unknown，状态码优先于文案；写 `report.timeout`。
-  结果页无错误采样时整块不渲染，旧记录显示「本次未采集」，Markdown 导出同步。
+- **归因与统计只在 core 一份**：`packages/core/src/timeout.ts` 提供 `classifyTimeout`（connect / first-token /
+  mid-stream / rate-limit / gateway / unknown，状态码优先）、`percentile` / `latencyStats`（nearest-rank）、
+  `summarizeTransport`（超时率分母 = 已发起 − 用户取消；p50/p95/max 只统成功的采样）。
+  `apps/web/src/lib/latency.ts` 只把每题 × 每次采样整理成可读结论，不写第二份阈值或分位数。
+- **transport 保留失败时的进度**：`ModelResponse` 新增 `phase` / `lastChunkAtMs` / `chunks` / `attempts`，
+  超时与流断时能回答「慢在哪一段」（连接 / 首字 / 流中），attempt 级超时重试成功也不会被抹掉。
+- **只展示、不进分**：归因只写 `report.timeout`，结果页无错误采样时整块不渲染，旧记录显示「本次未采集」，
+  Markdown 导出同步；不进 judge、不进能力分。
 - **只跑观测题时不再显示 0.0 能力分**：全部 `weight=0` 时 `report.total.n === 0`，结果页与导出写
   「本次没有可评分的题目，能力分不适用」，避免被读成「模型 0 分」。
 

@@ -7,7 +7,7 @@
 
 | 路径 | 所有者 | 内容 |
 |---|---|---|
-| `packages/core/src/judge/registry.ts`、`judge/index.ts`、`scoring/**`、`fingerprint/**`、`aggregate.ts`、`sampling/**`、`types.ts`、`index.ts` | mike | 判分/聚合/抽样/弱信号的骨架与契约 |
+| `packages/core/src/judge/registry.ts`、`judge/index.ts`、`scoring/**`、`fingerprint/**`、`timeout.ts`、`aggregate.ts`、`sampling/**`、`types.ts`、`index.ts` | mike | 判分/聚合/抽样/弱信号/超时归因与时延统（v0.4 契约）的骨架与契约 |
 | `packages/core/src/fingerprint/model-trace/**` | mike | ModelTrace 探针挑战、参考库加载、排名打分、闭集概率与 replay 回归（v0.4，纯函数） |
 | `packages/core/src/data/model-trace-bank/**` | pit | v0.4 明确例外（`data/**` 归 wof 的唯一例外）：精简参考库 JSON + `MANIFEST.json`（上游 commit / 探针参数 / calibration）；只放数据，不含代码 |
 | `packages/core/src/judge/rules/**` | pit | 各判定规则的实现与正反例单测 |
@@ -159,7 +159,13 @@ v0.4 一个版本发 **0.4.0**，三件事同版：参考库 + 排名、ModelTra
   CI 跑 `--verify-hash`（只校验仓库内 `packages/core/src/data/model-trace-bank/` 的库与 MANIFEST）。
 - **replay 回归是硬门槛**：用参考库自带的真实样本（`replay-fixture.json`，70 模型 × 3 条）回放，top-1 命中率 ≥95%；
   低于阈值直接拒合。只测函数不测数据不算通过。
-- **超时不判分**：超时/时延归因是 `apps/web/src/lib/latency.ts` 的纯展示统计（`isTimeoutError` / 分位数 / verdict），只在 `response.error` 存在时计入；不得把超时写进 judge 或能力分。超时类用例是题库新分组 `group=timeout`（wof 维护），**weight=0**：`aggregate` 对 weight=0 的题只记 transport、不进维度分/能力分/题级统计；跑测页默认不勾选该组，用户显式打开才跑。
+- **超时归因只在 core 一份**：`packages/core/src/timeout.ts` 是唯一实现（`classifyTimeout` connect / first-token / mid-stream /
+  rate-limit / gateway / unknown、`percentile` / `latencyStats` nearest-rank、`summarizeTransport`：分母 = 已发起 − 取消，
+  p50/p95 只统成功的采样，429 / 502-504 归 rate-limit / gateway 不计入超时率）。
+  `apps/web/src/lib/latency.ts` 只负责把「每题 × 每次采样」整理成可读结论与文案，**不写第二份阈值或分位数**；
+  超时仍**不进 judge、不进能力分**。transport 把超时时的 `phase` / `lastChunkAtMs` / `chunks` / `attempts` 保留在
+  `ModelResponse` 里供归因使用；超时类用例是题库新分组 `group=timeout`（wof 维护），**weight=0**：
+  `aggregate` 对 weight=0（或 `diagnostic: true`）的题只记 transport、不进维度分/能力分/题级统计；跑测页默认不勾选该组，用户显式打开才跑。
 - **MIT**：lm-detector / ModelTrace 均为 MIT（Copyright (c) 2026 xqy2006），`THIRD_PARTY_NOTICES.md` 保留声明与来源 URL。
 - **默认关闭**：探针默认关（三条约 300 个整数的长请求有额外耗时与费用），用户显式打开才跑。
 
