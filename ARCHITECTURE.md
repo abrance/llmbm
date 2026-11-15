@@ -8,7 +8,8 @@
 | 路径 | 所有者 | 内容 |
 |---|---|---|
 | `packages/core/src/judge/registry.ts`、`judge/index.ts`、`scoring/**`、`fingerprint/**`、`aggregate.ts`、`sampling/**`、`types.ts`、`index.ts` | mike | 判分/聚合/抽样/弱信号的骨架与契约 |
-| `packages/core/src/fingerprint/model-trace/**` | mike | ModelTrace 探针挑战、参考库加载、排名打分、闭集概率与 replay 回归（v0.4，纯函数；含精简参考库 JSON） |
+| `packages/core/src/fingerprint/model-trace/**` | mike | ModelTrace 探针挑战、参考库加载、排名打分、闭集概率与 replay 回归（v0.4，纯函数） |
+| `packages/core/src/data/model-trace-bank/**` | pit | v0.4 明确例外（`data/**` 归 wof 的唯一例外）：精简参考库 JSON + `MANIFEST.json`（上游 commit / 探针参数 / calibration）；只放数据，不含代码 |
 | `packages/core/src/judge/rules/**` | pit | 各判定规则的实现与正反例单测 |
 | `packages/core/src/adapters/**` | pit | openai / anthropic / gemini 请求体与 SSE 归一化（只放协议映射） |
 | `packages/core/src/prompt.ts` | sor | 题库条目 → 请求消息的组装规则（`buildMessages` / `summarizeQuestion`），唯一实现 |

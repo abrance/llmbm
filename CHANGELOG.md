@@ -2,7 +2,35 @@
 
 格式参照 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，版本遵循语义化。
 
-## [未发布]
+## [0.4.0] - 2026-11-16
+
+### 新增（v0.4 ModelTrace 指纹排名）
+- **参考库**：`packages/core/src/data/model-trace-bank/model-trace-bank.json`（1.05MB，70 模型 / 15 家族），
+  由 `scripts/build-modeltrace-bank.mjs` 从 lm-detector（MIT，Copyright (c) 2026 xqy2006，
+  `https://github.com/ikaleio/lm-detector`）commit `2c61f8f` 的 `data/unified_bank.json` 纯抽取生成；
+  原始 14MB 库不入库。同目录 `MANIFEST.json` 记上游 commit、算法 `modeltrace-robust-v1`、探针参数与
+  calibration（1/2/3 条有效样本的 `beta` 与交叉验证准确率）。
+- **CI 门禁**：`node scripts/build-modeltrace-bank.mjs --verify-hash` 只校验仓库内库与 MANIFEST 的
+  sha256 / 体积 / 上游 commit，不读原始库；`--check`（需原始库）仍可本地逐字节重建，sha256 `9b16f123…`。
+- **core 打分 / 加载 / 探针**：`packages/core/src/fingerprint/model-trace/**` 纯函数——移植上游
+  `fingerprint-core.js`（与 300 条真实样本逐条对齐，maxAbsDiff=0）；`loadModelTraceBank` 懒加载并校验；
+  `runModelTraceProbe` 串行发 3 条长整数挑战，单条失败不中断整卷。
+- **探针对齐上游 `2c61f8f`**：不发 `temperature`、`max_tokens = 8192`、每条独立 250000ms 超时
+  （`ProbeSend` 第四参数 `{ timeoutMs }`，不继承普通题的 30s）。
+- **闭集概率**：`ranked`（3 条有效样本）才给 `softmax(β × 均值分)`；`partial` / `insufficient` 给 null，
+  不拿排名分冒充概率。
+- **web 接入**：跑测页开关默认关；结果页 ModelTrace 卡（top-5、闭集概率、参考库交叉验证准确率与 caveat 同屏）；
+  Markdown 导出加「ModelTrace 指纹排名（附加结论，不进能力分）」小节。探针失败只显示「未取得有效样本」，
+  不影响能力分、保存与断点。
+- **准确率口径**：`referenceAccuracy` 标为库属性（3 条样本 86.7%），不与本次运行的置信度混写；
+  replay 回归是库内样本回放（70 模型 × 3 条，top-1 100%），属 in-sample 回归值，不是线上泛化准确率。
+
+### 新增（v0.4 超时归因）
+- **超时归因（只展示、不进分）**：`apps/web/src/lib/timeout.ts` 只对 `response.error` 采样分类——
+  connect / first-token / mid-stream / rate-limit / gateway / unknown，状态码优先于文案；写 `report.timeout`。
+  结果页无错误采样时整块不渲染，旧记录显示「本次未采集」，Markdown 导出同步。
+- **只跑观测题时不再显示 0.0 能力分**：全部 `weight=0` 时 `report.total.n === 0`，结果页与导出写
+  「本次没有可评分的题目，能力分不适用」，避免被读成「模型 0 分」。
 
 ### 新增（v0.4 超时与响应时延）
 - **题库新增 `timeout` 分组「超时与响应时延」（10 题，题库 74 题，版本 qb-2026-11-15.1）**：
@@ -19,8 +47,7 @@
 - **结果页「超时与响应时延」卡**：与问题探针并列、不折叠，结论置顶；未跑本组时明说没跑；
   0 超时也明说「本组 N 次采样 0 超时，TTFT 中位 Xms」。Markdown 导出同步加同名列。
 - **单测**：web +14 条，覆盖全超时 / 部分超时 / 全正常三种输入下的结论文案与 p50/p95 计算，
-  边界 1 条采样、0 条采样、timeoutMs=0。
-- **内置 Mock**：超时组改用 SSE 分片返回（首字延迟按题配置），可本地演示 TTFT；故障注入下
+  边界 1 条采样、0 条采样、timeoutMs=0。- **内置 Mock**：超时组改用 SSE 分片返回（首字延迟按题配置），可本地演示 TTFT；故障注入下
   `timeout-hang-001` 不返回，用来演示超时结论。
 - 不改全局默认 timeout、不改 transport 重试与终止阈值（mike 的 core 契约）。
 
