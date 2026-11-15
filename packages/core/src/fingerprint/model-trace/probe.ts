@@ -7,8 +7,9 @@
  * 关键约束：
  *   - **不新写 HTTP 客户端**：请求体一律由现有 `Adapter.buildChatRequest` 构造，
  *     发送交给注入的 `send`（web 的 transport / 测试的假实现）。这里只做协议无关的拼装。
- *   - 探针与普通题共用同一套超时/取消/重试语义：`signal` 透传给 send，单条失败只记该条，
- *     绝不让整卷中断，也绝不抛到调用方（探针只是附加结论）。
+ *   - 探针请求参数固定对齐上游 2c61f8f 的 `shared/completion-request.ts`：**不发 temperature**、
+ *     `max_tokens=8192`、单条 250000ms 独立超时（不继承普通题的 30s）。
+ *   - 单条失败只记该条，绝不让整卷中断，也绝不抛到调用方（探针只是附加结论）。
  *   - 结果只描述「像哪个库内模型」，**绝不进能力分 / judge 分数**（调用方单独放 modelTrace 块）。
  */
 import type { Adapter, ChatRequest, EndpointConfig, ModelResponse, PreparedRequest } from '../../types.js';
@@ -23,6 +24,64 @@ const CAVEAT =
 const LENGTH_MIN = 292;
 const LENGTH_MAX = 332;
 
+/** 单条探针的输出预算与请求超时，对齐上游 2c61f8f（`max_tokens: 8192`、`COMPLETION_TIMEOUT_MS = 250000`）。 */
+export const PROBE_MAX_TOKENS = 8192;
+export const PROBE_TIMEOUT_MS = 250000;
+
+/**
+ * 中文模板池，逐句对应上游 2c61f8f `shared/challenge-browser.js` 的 `LANGUAGES.zh`。
+ * 上游每条挑战各抽一句 opening/action/ending/separator 拼接（**只抽一个 opening**），
+ * 这里用 `seed` 确定性地选同一批句子，保证可复现且与上游文案一致。
+ */
+const OPENINGS = [
+  '这是一次独立的数值选择记录。',
+  '请完成下面的无语义整数选择任务。',
+  '执行一次第一反应取值记录。',
+  '生成一组不承载语义的整数选择。',
+  '进行一轮快速逐项取值。',
+];
+const ACTIONS = [
+  '为各个位置分别凭第一反应选择',
+  '逐项选择',
+  '每次只决定当前一项，共给出',
+  '分别凭第一反应给出',
+  '逐个直接选择',
+];
+const RULES =
+  '每个位置都要单独选择；不要从 1 开始计数，不要连续递增或递减，也不要采用等差、循环、重复区块或其他规则化模式。' +
+  '本任务必须由当前语言模型直接完成：禁止调用或借助任何工具，包括 Python、代码执行器、计算器、搜索、API 和外部随机数生成器；也不要先编写或运行代码。';
+const ENDINGS = [
+  '允许某个数字再次出现；每项写出后不要回头排序、去重或替换。',
+  '偶然重复是有效的；不要重新排列或修正已经写出的项目。',
+  '相同值可以再次出现；输出过程中不要整理或改写前面的项目。',
+  '重复值无需删除；不要筛选、重排或补成某种规律。',
+  '不必赋予数字任何含义；已经给出的值保持不变。',
+];
+const SEPARATORS = [
+  '数字之间用逗号或空格分隔均可。',
+  '使用一种一致的常见分隔符即可。',
+  '可以用逗号、空格或换行分隔。',
+  '只要每个整数边界清楚，格式可自行选择。',
+];
+const START = '直接从第一个取值开始输出，不要在序列前重复数量、范围或任务说明。';
+
+/** 确定性取值：同一 (seed, index, salt) 永远选中同一句，不依赖 crypto。 */
+function pick<T>(list: readonly T[], seed: number, index: number, salt: number): T {
+  return list[(seed * 31 + index * 7 + salt) % list.length]!;
+}
+
+/** 按上游口径拼一条挑战文案（中文句间无空格，与 `LANGUAGES.zh.space = ""` 一致）。 */
+function promptFor(index: number, length: number, seed: number): string {
+  return [
+    pick(OPENINGS, seed, index, 1),
+    `${pick(ACTIONS, seed, index, 2)} ${length} 个 1 到 355（含端点）的整数。`,
+    RULES,
+    pick(ENDINGS, seed, index, 3),
+    pick(SEPARATORS, seed, index, 4),
+    START,
+  ].join('');
+}
+
 export interface ProbeChallenge {
   id: string;
   expectedCount: number;
@@ -35,31 +94,36 @@ export function minValidNumbers(expectedCount: number): number {
 }
 
 /**
- * 三条确定的挑战。为了可复现与可测，长度按固定步长在 [292,332] 内取三条互不相同的值，
- * 文案用中文模板（llmbm 面向中文用户）。不依赖 crypto，同一 seed 永远得到同一组。
+ * 三条确定的挑战：长度按固定步长在 [292,332] 内取三条互不相同的值，文案由 seed 确定性挑选。
+ * 不依赖 crypto，同一 seed 永远得到同一组（与上游「每条独立随机抽模板」的效果等价且可复现）。
  */
 export function buildProbeChallenges(count = 3, seed = 0): ProbeChallenge[] {
   const span = LENGTH_MAX - LENGTH_MIN + 1; // 41
   const lengths: number[] = [];
   for (let index = 0; index < count; index += 1) {
-    // 37 与 41 互质 → index 步进覆盖不同长度，不重复
+    // 13 与 41 互质 → index 步进覆盖不同长度，不重复
     lengths.push(LENGTH_MIN + ((seed * 7 + index * 13) % span));
   }
   return lengths.map((length, index) => ({
     id: `modeltrace-probe-${index + 1}`,
     expectedCount: length,
-    prompt:
-      `这是一次独立的数值选择记录。请完成下面的无语义整数选择任务。` +
-      `为各个位置分别凭第一反应选择 ${length} 个 1 到 355（含端点）的整数。` +
-      `每个位置都要单独选择；不要从 1 开始计数，不要连续递增或递减，也不要采用等差、循环、重复区块或其他规则化模式。` +
-      `本任务必须由当前语言模型直接完成：禁止调用或借助任何工具，包括 Python、代码执行器、计算器、搜索、API 和外部随机数生成器；也不要先编写或运行代码。` +
-      `允许某个数字再次出现；每项写出后不要回头排序、去重或替换。数字之间用逗号或空格分隔均可。` +
-      `直接从第一个取值开始输出，不要在序列前重复数量、范围或任务说明。`,
+    prompt: promptFor(index, length, seed),
   }));
 }
 
+/** 发送一条已用 adapter 构造好的请求时，除 `signal` 外必须带的传输参数。 */
+export interface ProbeSendOptions {
+  /** 单条探针的独立超时（默认 PROBE_TIMEOUT_MS，不继承普通题的 30s）。 */
+  timeoutMs: number;
+}
+
 /** 发送一条已用 adapter 构造好的请求，返回归一化后的 ModelResponse（解析在 transport/adapter 里做）。 */
-export type ProbeSend = (prepared: PreparedRequest, adapter: Adapter, signal: AbortSignal) => Promise<ModelResponse>;
+export type ProbeSend = (
+  prepared: PreparedRequest,
+  adapter: Adapter,
+  signal: AbortSignal,
+  options: ProbeSendOptions,
+) => Promise<ModelResponse>;
 
 export interface ProbeSampleResult {
   index: number;
@@ -124,7 +188,9 @@ function softmax(scores: readonly number[], beta: number): number[] {
 function averageRanking(scores: number[][], bank: ScoringBank): ModelTraceRank[] {
   const order = bank.model_order;
   const byId = new Map(bank.models.map((m) => [m.id, m]));
-  const means = order.map((_, modelIndex) => scores.reduce((sum, row) => sum + (row[modelIndex] ?? 0), 0) / scores.length);
+  const means = order.map(
+    (_, modelIndex) => scores.reduce((sum, row) => sum + (row[modelIndex] ?? 0), 0) / scores.length,
+  );
   return order
     .map((id, modelIndex) => {
       const meta = byId.get(id);
@@ -164,8 +230,16 @@ export function analyzeProbeWithChallenges(
       ...(response.error ? { error: response.error } : {}),
     };
   });
-  const acceptedRows = outputs.map((response, index) => ({ response, index })).filter(({ index }) => samples[index]!.accepted);
-  return finishResult(samples, acceptedRows.map(({ response }) => parseNumbers(response.text ?? '')), bank, challenges.length, topN);
+  const acceptedRows = outputs
+    .map((response, index) => ({ response, index }))
+    .filter(({ index }) => samples[index]!.accepted);
+  return finishResult(
+    samples,
+    acceptedRows.map(({ response }) => parseNumbers(response.text ?? '')),
+    bank,
+    challenges.length,
+    topN,
+  );
 }
 
 function finishResult(
@@ -200,10 +274,24 @@ function finishResult(
   const decision = used >= 3 ? 'ranked' : 'partial';
   if (decision !== 'ranked') {
     const ranking = ranked.slice(0, topN);
-    return { ...base, decision, probability: null, probabilityStatus: 'unavailable' as const, probabilityScope: null, ranking, top: ranking[0] };
+    return {
+      ...base,
+      decision,
+      probability: null,
+      probabilityStatus: 'unavailable' as const,
+      probabilityScope: null,
+      ranking,
+      top: ranking[0],
+    };
   }
   const beta = bank.calibration[String(Math.min(used, 3))]?.beta;
-  const calibrated = typeof beta === 'number' && Number.isFinite(beta) ? softmax(ranked.map((rank) => rank.score), beta) : null;
+  const calibrated =
+    typeof beta === 'number' && Number.isFinite(beta)
+      ? softmax(
+          ranked.map((rank) => rank.score),
+          beta,
+        )
+      : null;
   const withProbability = ranked.map((rank, index) => ({ ...rank, probability: calibrated?.[index] ?? null }));
   const ranking = withProbability.slice(0, topN);
   return {
@@ -226,8 +314,8 @@ export interface RunModelTraceProbeOptions {
   /** 探针条数，默认 3。 */
   count?: number;
   seed?: number;
-  /** 每条探针的请求只带这一条 user 消息；temperature 默认 0。 */
-  temperature?: number;
+  /** 单条探针的独立超时，默认 250000ms（不继承普通题 30s）。 */
+  timeoutMs?: number;
 }
 
 /**
@@ -237,7 +325,8 @@ export interface RunModelTraceProbeOptions {
 export async function runModelTraceProbe(options: RunModelTraceProbeOptions): Promise<ModelTraceResult> {
   const { cfg, adapter, send, bank, signal } = options;
   const challenges = buildProbeChallenges(options.count ?? 3, options.seed ?? 0);
-  const temperature = options.temperature ?? 0;
+  // 请求头里固定为上游口径：不发 temperature、max_tokens=8192（见文件头注释）。
+  const timeoutMs = options.timeoutMs ?? PROBE_TIMEOUT_MS;
 
   const outputs: ModelResponse[] = [];
   for (const challenge of challenges) {
@@ -248,11 +337,11 @@ export async function runModelTraceProbe(options: RunModelTraceProbeOptions): Pr
     const request: ChatRequest = {
       model: cfg.model,
       messages: [{ role: 'user', content: challenge.prompt }],
-      temperature,
+      maxTokens: PROBE_MAX_TOKENS,
     };
     try {
       const prepared = adapter.buildChatRequest(request, cfg);
-      outputs.push(await send(prepared, adapter, signal));
+      outputs.push(await send(prepared, adapter, signal, { timeoutMs }));
     } catch (error) {
       outputs.push({ text: '', error: error instanceof Error ? error.message : String(error) });
     }
