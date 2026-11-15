@@ -13,11 +13,16 @@
 
 1. `packages/core/src/fingerprint/model-trace/scoring.ts`
    —— 由 lm-detector 的 `shared/fingerprint-core.js` 忠实移植（TypeScript 重写，逻辑等价）。
-2. `packages/core/src/fingerprint/model-trace/model-trace-bank.json`
+2. `packages/core/src/fingerprint/model-trace/probe.ts`
+   —— 探针文案模板池逐句对应 lm-detector `shared/challenge-browser.js` 的 `LANGUAGES.zh`；
+   请求参数（不发 temperature / `max_tokens: 8192` / 250000ms 超时）对齐 `shared/completion-request.ts`。
+   上游基准 commit：`2c61f8f`。
+3. `packages/core/src/data/model-trace-bank/model-trace-bank.json`
    —— 由 lm-detector 的 `data/unified_bank.json` 抽取「打分必需字段」生成的精简参考库
-   （源仓库 commit 与 sha256 见该文件头部 `provenance`）。
+   （源仓库 commit 与 sha256 见该文件头部 `provenance`；产物自身 sha256 与校准摘要见同目录 `MANIFEST.json`）。
 
-上述文件均沿用 MIT 许可，原始版权声明如下：
+上述文件均沿用 MIT 许可，全文副本见 [`LICENSES/lm-detector-MIT.txt`](LICENSES/lm-detector-MIT.txt)。
+原始版权声明：
 
 ```
 MIT License

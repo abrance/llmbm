@@ -2,7 +2,9 @@
  * 精简参考库加载器：只读仓库内的 model-trace-bank.json，运行时**不下载**。
  *
  * 该 JSON 由 scripts/build-modeltrace-bank.mjs 从上游 unified_bank.json 抽取生成，
- * 头部 provenance 记录 source_repo / source_commit / source_sha256 / license。
+ * 头部 provenance 记录 source_repo / source_commit / source_sha256 / license；
+ * 同目录 MANIFEST.json 记 bank 本身的 sha256、上游 commit、算法与探针参数，
+ * 由 `node scripts/build-modeltrace-bank.mjs --verify-hash`（CI 门禁）校验两者一致。
  * 数据量约 1MB，只在首次真正跑探针时按需加载（不在模块顶层加载，避免拖慢 typecheck / 启动）。
  */
 import type { BankModelMeta, ScoringBank } from './scoring.js';
@@ -36,7 +38,9 @@ let cached: ModelTraceBank | undefined;
  */
 export async function loadModelTraceBank(): Promise<ModelTraceBank> {
   if (cached) return cached;
-  const mod = (await import('./model-trace-bank.json', { with: { type: 'json' } })) as unknown as {
+  const mod = (await import('../../data/model-trace-bank/model-trace-bank.json', {
+    with: { type: 'json' },
+  })) as unknown as {
     default: ModelTraceBank;
   };
   cached = validateBank(mod.default);
@@ -48,7 +52,8 @@ export function validateBank(bank: ModelTraceBank): ModelTraceBank {
   const fail = (message: string): never => {
     throw new Error(`ModelTrace 参考库无效：${message}`);
   };
-  if (bank.schema !== 'modeltrace-scoring-bank') fail(`schema 应为 modeltrace-scoring-bank，实际 ${String(bank.schema)}`);
+  if (bank.schema !== 'modeltrace-scoring-bank')
+    fail(`schema 应为 modeltrace-scoring-bank，实际 ${String(bank.schema)}`);
   if (!Array.isArray(bank.model_order) || bank.model_order.length === 0) fail('model_order 为空');
   if (!Array.isArray(bank.models) || bank.models.length !== bank.model_order.length)
     fail('models 数量与 model_order 不一致');
@@ -65,7 +70,13 @@ export function validateBank(bank: ModelTraceBank): ModelTraceBank {
   const oDim = ordered.feature_mean.length;
   if (ordered.centroids[0]?.length !== oDim) fail('ordered_blocks 质心维度与特征维度不一致');
   if (ordered.environment_centroids.some((env) => env.length !== modelCount)) fail('environment_centroids 维度错位');
-  if (!bank.provenance || !bank.provenance.license) fail('缺少 provenance.license');
+  const provenance = bank.provenance;
+  if (!provenance || !provenance.license) fail('缺少 provenance.license');
+  // 溯源可机器校验：source_url 必须指向上游仓库，source_sha256 必须是原始库的 64 位 sha256。
+  if (!/^https?:\/\/\S+$/.test(provenance.source_url ?? ''))
+    fail(`provenance.source_url 不是合法 URL：${String(provenance.source_url)}`);
+  if (!/^[0-9a-f]{64}$/i.test(provenance.source_sha256 ?? ''))
+    fail(`provenance.source_sha256 应为 64 位十六进制，实际 ${String(provenance.source_sha256)}`);
   return bank;
 }
 

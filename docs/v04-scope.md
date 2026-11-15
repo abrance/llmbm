@@ -8,8 +8,8 @@ v0.3.5 已把「能力测评 + F9/F10 弱信号」做稳。v0.4 只做三件事�
 
 | 路径 | 所有者 | 内容 |
 |---|---|---|
-| `packages/core/src/fingerprint/model-trace/**` | mike | 探针挑战生成、解析、排名打分、参考库加载、闭集概率（纯函数；含 replay 回归、fixture 与精简参考库 JSON） |
-| `scripts/build-modeltrace-bank.mjs`、`scripts/modeltrace/**` | pit | 上游 raw bank → 精简库抽取脚本；`--check` 校验 sha256 稳定 |
+| `packages/core/src/fingerprint/model-trace/**` | mike | 探针挑战生成、解析、排名打分、参考库加载、闭集概率（纯函数；含 replay 回归与 fixture JSON） |
+| `scripts/build-modeltrace-bank.mjs`、`scripts/modeltrace/**`、`packages/core/src/data/model-trace-bank/**` | pit | 上游 raw bank → 精简库抽取脚本与产物（库本体 + MANIFEST，v0.4 目录归属的明确例外）；`--check` 从源重建、`--verify-hash` 只校验仓内产物 |
 | `apps/web/src/lib/latency.ts`、`latencyReport.ts`、`components/LatencyPanel.tsx` | wof | 超时/时延归因（纯展示统计，不进判分） |
 | `apps/web/src/components/ModelTraceCard.tsx`、`apps/web/src/lib/modelTrace.ts` | wof | 探针结果卡片、导出段落、跑测页开关 |
 | `packages/core/src/judge/rules/**` | pit | 本版**不新增** judge；超时不得变成扣分项 |
@@ -42,7 +42,10 @@ v0.3.5 已把「能力测评 + F9/F10 弱信号」做稳。v0.4 只做三件事�
 
 ### 3.2 ModelTrace 探针
 
-- `runModelTraceProbe({ cfg, adapter, send, bank, signal, count?, seed?, temperature? }) => Promise<ModelTraceResult>`
+- 探针请求参数固定对齐上游 `2c61f8f`：不发 `temperature`、`max_tokens: 8192`、
+  每条探针独立 250000ms 超时（`ProbeSend` 收 `{ timeoutMs }`，由 web transport 实现）；
+  文案只取一个 opening + 一个 action + rules + 一个 ending + 一个 separator + start。
+- `runModelTraceProbe({ cfg, adapter, send, bank, signal, count?, seed?, timeoutMs? }) => Promise<ModelTraceResult>`
 - 三条独立挑战，单条失败只记该条、永不抛出；`decision: 'insufficient' | 'partial' | 'ranked'`。
 - **闭集概率**：`used>=3` 时给 `ranking[].probability` 与 `top.probability`（softmax(β×均值分)，β 取
   `bank.calibration[min(used,3)].beta`），并标注 `probabilityScope: 'reference-closed-set'`；
@@ -53,9 +56,12 @@ v0.3.5 已把「能力测评 + F9/F10 弱信号」做稳。v0.4 只做三件事�
 
 ### 3.3 排名参考库
 
-- 只提交精简库（约 1.05MB，gzip 472KB），头部 `provenance` 记
-  `source_repo / source_commit / source_sha256 / license / license_copyright / built_at`。
-- 原始 14MB `unified_bank.json` 不入库；`node scripts/build-modeltrace-bank.mjs --check` 必须能从源重建同一 sha256。
+- 只提交精简库（约 1.05MB，gzip 472KB），落在 `packages/core/src/data/model-trace-bank/`（pit 所有），
+  头部 `provenance` 记
+  `source_repo / source_commit / source_sha256 / license / license_copyright / built_at`；
+  同目录 `MANIFEST.json` 记产物 sha256、上游 commit、算法名、探针参数与 calibration 1/2/3 的 beta+cv。
+- 原始 14MB `unified_bank.json` 不入库；`node scripts/build-modeltrace-bank.mjs --check` 必须能从源重建同一 sha256；
+  CI 门禁跑 `--verify-hash`（只校验仓内产物与 MANIFEST，不依赖原始库）。
 - `replay-fixture.json`（70 模型 × 3 条真实样本，约 238KB）是回归测试数据，不是训练数据、不参与打分训练。
 
 ### 3.4 许可

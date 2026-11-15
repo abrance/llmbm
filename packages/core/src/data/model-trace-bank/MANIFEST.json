@@ -1,0 +1,45 @@
+{
+  "schema": "modeltrace-bank-manifest-v1",
+  "upstream": {
+    "repo": "https://github.com/ikaleio/lm-detector",
+    "url": "https://github.com/ikaleio/lm-detector",
+    "commit": "2c61f8f836de93d3ce60a9f76f8b8ff9e15011ac",
+    "commit_short": "2c61f8f",
+    "license": "MIT",
+    "license_copyright": "Copyright (c) 2026 xqy2006",
+    "license_file": "LICENSES/lm-detector-MIT.txt"
+  },
+  "algorithm": "modeltrace-robust-v1",
+  "probe": {
+    "version": "modeltrace-probe-v1",
+    "prompt_source": "shared/challenge-browser.js",
+    "challenges": 3,
+    "max_tokens": 8192,
+    "timeout_ms": 250000,
+    "temperature": null
+  },
+  "bank": {
+    "file": "model-trace-bank.json",
+    "schema": "modeltrace-scoring-bank",
+    "sha256": "9b16f1235d645de170e27d7bf7e48ec3d131d86c305930ba43ba4169f68ad9be",
+    "bytes": 1097694,
+    "models": 70,
+    "families": 15,
+    "source_sha256": "dff79cd5d1d381b5d470f4b8dd7ddb58e1ae96b1ac09b6c8b43106aa0a880ad5"
+  },
+  "calibration": {
+    "1": {
+      "beta": 3.048796488927688,
+      "cv_accuracy": 0.7277623884272084
+    },
+    "2": {
+      "beta": 4.294292655539807,
+      "cv_accuracy": 0.828926409684613
+    },
+    "3": {
+      "beta": 4.857875621521567,
+      "cv_accuracy": 0.8670157068062827
+    }
+  },
+  "built_at": "2026-11-12T18:48:30.723628+00:00"
+}
