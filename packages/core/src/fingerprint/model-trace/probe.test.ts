@@ -90,6 +90,42 @@ test('全部失败 → insufficient，不抛异常，ranking 为空', async () =
   assert.deepEqual(res.ranking, []);
 });
 
+test('ranked 给闭集概率：top.probability ∈ (0,1]，概率随分数单调、scope 正确', async () => {
+  const challenges = buildProbeChallenges(3, 0);
+  const outputs = challenges.map((c) => ok(c.expectedCount));
+  const res = analyzeProbeWithChallenges(challenges, outputs, bank, 5);
+  assert.equal(res.decision, 'ranked');
+  assert.equal(res.probabilityStatus, 'reference-calibrated');
+  assert.equal(res.probabilityScope, 'reference-closed-set');
+  assert.equal(typeof res.probability, 'number');
+  assert.ok(res.probability! > 0 && res.probability! <= 1);
+  assert.equal(res.top?.probability, res.probability);
+  const probs = res.ranking.map((r) => r.probability!);
+  assert.ok(probs.every((p) => typeof p === 'number' && p > 0 && p <= 1));
+  // softmax(β×score) 与 score 同序：概率必须单调不增
+  for (let i = 1; i < probs.length; i += 1) assert.ok(probs[i]! <= probs[i - 1]!);
+});
+
+test('partial（有效样本不足三条）→ 不给概率，只给排名', () => {
+  const challenges = buildProbeChallenges(3, 0);
+  const outputs = [ok(300), ok(300), { text: numberText(10) }];
+  const res = analyzeProbeWithChallenges(challenges, outputs, bank, 5);
+  assert.equal(res.decision, 'partial');
+  assert.equal(res.probability, null);
+  assert.equal(res.probabilityStatus, 'unavailable');
+  assert.equal(res.probabilityScope, null);
+  assert.ok(res.ranking.every((r) => r.probability === null));
+});
+
+test('探针结果是独立结论：不含 judge/能力分字段，也不改变任何分数', () => {
+  const challenges = buildProbeChallenges(3, 0);
+  const res = analyzeProbeWithChallenges(challenges, challenges.map((c) => ok(c.expectedCount)), bank, 5);
+  for (const key of ['score', 'checks', 'status', 'dimensions', 'total', 'transportError']) {
+    assert.equal(Object.prototype.hasOwnProperty.call(res, key), false, `探针结果不应含 ${key}`);
+  }
+  assert.equal(res.weak, true);
+});
+
 test('有效整数不足门槛的样本不计入（如只写了 10 个数）', () => {
   const challenges = buildProbeChallenges(3, 0);
   const outputs = [ok(300), ok(300), { text: numberText(10) }];

@@ -168,3 +168,27 @@ test('不给 samplesPerQuestion 时退回旧口径（完成题数 / 应跑题数
   const report = aggregate({ scores, expectedQuestions: 4 });
   assert.equal(report.stability.rate, 0.5);
 });
+
+test('weight=0 的观测题不进能力分、维度分与题级统计，但传输失败仍计入 transport', () => {
+  const scored = s('q1', 'ability', 100);
+  const observed = s('q-timeout', 'timeout', 0);
+  const observedTimeout: QuestionScore = {
+    ...s('q-timeout-2', 'timeout', 0),
+    status: 'pending_review',
+    transportError: true,
+    flags: ['timeout'],
+  };
+  const base = aggregate({ scores: [scored], expectedQuestions: 1, weights: { q1: 1 } });
+  const withObservations = aggregate({
+    scores: [scored, observed, observedTimeout],
+    expectedQuestions: 3,
+    weights: { q1: 1, 'q-timeout': 0, 'q-timeout-2': 0 },
+  });
+  assert.equal(withObservations.total.mean, base.total.mean);
+  assert.equal(withObservations.dimensions.length, base.dimensions.length);
+  assert.equal(withObservations.counts.pass, base.counts.pass);
+  assert.equal(withObservations.counts.fail, base.counts.fail);
+  // 观测题的传输失败仍进 transport 账，不静默吞掉
+  assert.equal(withObservations.transport.errors, 1);
+  assert.equal(withObservations.transport.samples, 3);
+});
