@@ -38,22 +38,28 @@
   「本次没有可评分的题目，能力分不适用」，避免被读成「模型 0 分」。
 
 ### 新增（v0.4 超时与响应时延）
-- **题库新增 `timeout` 分组「超时与响应时延」（10 题，题库 74 题，版本 qb-2026-11-15.1）**：
+- **题库新增 `timeout` 分组「超时与响应时延」（10 题，题库 74 题，版本 qb-2026-11-16.1）**：
   首字慢（TTFT 超长、正文正常）、彻底挂起、流式中途卡死（HTTP 200 无 finishReason）、慢速滴流、
   长输出超预算、短问答也超时、心跳空转、长尾 p95、预算边缘，以及并发时延放大（人工复核项，
   本卷按题串行采样、不自动测并发）。每题带 `description` 与独立 `timeoutMs` 预算。
-- **该组只做传输观测，不计入能力分**：10 题全部 `weight: 0`（aggregate 对 weight=0 只记传输、
-  不进维度分/能力分/题级统计）；跑测页默认不勾选该组，需用户显式勾选才跑。
+- **该组只做传输观测，不计入能力分**：10 题全部 `weight: 0` 且 `diagnostic: true`；
+  `apps/web/src/lib/aggregateRun.ts` 在聚合前就把诊断题从 scores 与 expectedQuestions 里剔除
+  （不靠 weight 兜底，避免以后有题给诊断题补权重又漏进来），aggregate 对 weight=0 也只记传输、
+  不进维度分/能力分/题级统计；跑测页默认不勾选该组，需用户显式勾选才跑。
 - **时延分布统计（纯函数）**：`apps/web/src/lib/latency.ts` 对每次采样的 `latencyMs` / `ttftMs` 给
   本题 TTFT 与总耗时的 p50/p95/max、超时次数/采样数（超时率）、与同端点其他题中位对比，
   并输出可直接读的结论（如「短问答的 TTFT 中位 8.2s，说明不是题太大，是端点排队」）。
-  分位数为 nearest-rank；超时只认 transport 的「请求超时」文案，断流/网络错误单独计数，
-  不混进超时率；失败采样不参与分位数；0 采样与 timeoutMs=0 都有明确处理。
+  分位数为 nearest-rank；超时率只统计 `response.error` 存在的采样，分类统一调 core 的
+  `classifyTimeout`（状态码优先，web 不留第二份正则），断流/网络错误单独计数、不混进超时率；
+  失败采样不参与分位数；0 采样与 timeoutMs=0 都有明确处理。
 - **结果页「超时与响应时延」卡**：与问题探针并列、不折叠，结论置顶；未跑本组时明说没跑；
   0 超时也明说「本组 N 次采样 0 超时，TTFT 中位 Xms」。Markdown 导出同步加同名列。
-- **单测**：web +14 条，覆盖全超时 / 部分超时 / 全正常三种输入下的结论文案与 p50/p95 计算，
-  边界 1 条采样、0 条采样、timeoutMs=0。- **内置 Mock**：超时组改用 SSE 分片返回（首字延迟按题配置），可本地演示 TTFT；故障注入下
-  `timeout-hang-001` 不返回，用来演示超时结论。
+- **单测**：web 88 条全绿（core 343 / api 29 + 3 skip），覆盖全超时 / 部分超时 / 全正常三种输入下的
+  结论文案与 p50/p95 计算、边界 1 条采样、0 条采样、timeoutMs=0、429 → rate-limit、有 ttft 的中断 →
+  mid-stream、旧记录「本次未采集」，以及「聚合剔除诊断题后能力分不变」。
+- **内置 Mock**：超时组改用 SSE 分片返回（首字延迟按题配置），可本地演示 TTFT；故障注入走请求头
+  `x-llmbm-fault: slow-first | hang | stall | drip | long-output`（`x-llmbm-inject: flaky` 为跑测页开关），
+  请求处理抽到 `apps/web/mock/handler.ts`，dev/preview 中间件与单测共用同一份实现。
 - 不改全局默认 timeout、不改 transport 重试与终止阈值（mike 的 core 契约）。
 
 ### 新增（v0.3.5）
