@@ -25,6 +25,10 @@ jobs:
       - name: Install
         run: npm ci
 
+      # 只校验仓库内精简参考库与 MANIFEST 的 sha256（不读 14MB 原始库，所以 runner 上能跑）
+      - name: ModelTrace bank manifest
+        run: node scripts/build-modeltrace-bank.mjs --verify-hash
+
       - name: Typecheck
         run: npm run typecheck
 

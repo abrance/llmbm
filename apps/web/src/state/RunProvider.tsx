@@ -293,7 +293,8 @@ export function RunProvider({ children }: { children: ReactNode }) {
                 adapter,
                 bank,
                 signal: controller.signal,
-                send: sendPrepared,
+                // 探针契约：每条探针有自己的 timeoutMs（默认 250s），不继承普通题的 30s。
+                send: (prepared, adapter, signal, opts) => sendPrepared(prepared, adapter, signal, opts.timeoutMs),
               });
               const latest = runRef.current;
               if (!latest || latest.runId !== record.runId) return;

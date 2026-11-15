@@ -6,9 +6,11 @@ import { fileURLToPath } from 'node:url';
 import { countNumbers, hellingerFeature, orderedBlockFeature, parseNumbers, robustScoreNumbers } from './scoring.js';
 import type { ScoringBank } from './scoring.js';
 
-// dist 下运行时，精简库与测试文件同目录（tsc 会拷贝 json）。
+// dist 下运行时，精简库在 dist/data/model-trace-bank/（tsc 会拷贝被 import 的 json）。
 const HERE = dirname(fileURLToPath(import.meta.url));
-const BANK = JSON.parse(readFileSync(resolve(HERE, 'model-trace-bank.json'), 'utf8')) as ScoringBank;
+const BANK = JSON.parse(
+  readFileSync(resolve(HERE, '../../data/model-trace-bank/model-trace-bank.json'), 'utf8'),
+) as ScoringBank;
 
 /** 确定性伪随机整数序列，避免测试依赖 Math.random。 */
 function sequence(length: number, seed = 12345): number[] {
@@ -33,7 +35,10 @@ test('countNumbers：直方图长度恒为 355，按值偏移计数', () => {
   assert.equal(counts[0], 1); // 1 → index 0
   assert.equal(counts[354], 1); // 355 → index 354
   assert.equal(counts[199], 1); // 200 → index 199
-  assert.equal(counts.reduce((a, b) => a + b, 0), 3);
+  assert.equal(
+    counts.reduce((a, b) => a + b, 0),
+    3,
+  );
 });
 
 test('特征维度：Hellinger 355 维、有序块 74 维，且都是有限正数', () => {

@@ -23,10 +23,13 @@ export {
   minValidNumbers,
   analyzeProbeWithChallenges,
   runModelTraceProbe,
+  PROBE_MAX_TOKENS,
+  PROBE_TIMEOUT_MS,
 } from './probe.js';
 export type {
   ProbeChallenge,
   ProbeSend,
+  ProbeSendOptions,
   ProbeSampleResult,
   ModelTraceRank,
   ModelTraceResult,

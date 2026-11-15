@@ -154,7 +154,8 @@ v0.4 一个版本发 **0.4.0**，三件事同版：参考库 + 排名、ModelTra
 
 - **探针与排名是附加结论**：只出现在 `RunRecord.modelTrace`，`aggregate` 与 `judge` 都不读它，永远不进能力分。
 - **参考库**只提交精简库（约 1.05MB，gzip 472KB），`provenance` 记录 `source_repo / source_commit / source_sha256 / license / built_at`；
-  原始 14MB `unified_bank.json` 不入库。`node scripts/build-modeltrace-bank.mjs --check` 必须能从源重建同一 sha256。
+  原始 14MB `unified_bank.json` 不入库。`node scripts/build-modeltrace-bank.mjs --check` 必须能从源重建同一 sha256；
+  CI 跑 `--verify-hash`（只校验仓库内 `packages/core/src/data/model-trace-bank/` 的库与 MANIFEST）。
 - **replay 回归是硬门槛**：用参考库自带的真实样本（`replay-fixture.json`，70 模型 × 3 条）回放，top-1 命中率 ≥95%；
   低于阈值直接拒合。只测函数不测数据不算通过。
 - **超时不判分**：超时/时延归因是 `apps/web/src/lib/latency.ts` 的纯展示统计（`isTimeoutError` / 分位数 / verdict），只在 `response.error` 存在时计入；不得把超时写进 judge 或能力分。超时类用例是题库新分组 `group=timeout`（wof 维护），**weight=0**：`aggregate` 对 weight=0 的题只记 transport、不进维度分/能力分/题级统计；跑测页默认不勾选该组，用户显式打开才跑。
