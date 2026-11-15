@@ -6,14 +6,19 @@ import {
   JUDGE_RULE_VERSION,
   aggregate,
   defaultRegistry,
+  loadModelTraceBank,
   questionBankVersion,
+  runModelTraceProbe,
   sampleSuite,
 } from '@llmbm/core';
+import { resolveAdapter } from '@llmbm/core/adapters';
+import type { EndpointConfig } from '@llmbm/core';
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { BANK_VERSION, QUESTION_BANK, type BankQuestion } from '../data/bank.js';
 import { deleteCheckpoint, latestCheckpoint, latestRun, saveCheckpoint, saveRun } from '../lib/db.js';
-import { domainOf } from '../lib/transport.js';
+import { domainOf, sendPrepared } from '../lib/transport.js';
 import { failedIds } from '../lib/metrics.js';
+import { timeoutReportOf } from '../lib/timeout.js';
 import { signalsOf } from '../lib/signals.js';
 import type {
   EndpointSnapshot,
@@ -31,6 +36,7 @@ import { RunContext, type RunContextValue } from './runContext.js';
 
 const AVAILABLE = defaultRegistry().kinds();
 const QB_VERSION = questionBankVersion(QUESTION_BANK);
+const TIMEOUT_OF = new Map(QUESTION_BANK.map((q) => [q.id, q.timeoutMs]));
 
 function normalizeEndpoint(values: StoredEndpoint): StoredEndpoint {
   return { ...values, protocol: values.protocol ?? 'openai' };
@@ -60,6 +66,8 @@ interface LaunchConfig {
   done: Record<string, QuestionResult>;
   startedAt: string;
   injectFlaky: boolean;
+  /** 跑完后是否额外跑 ModelTrace 指纹探针。 */
+  modelTrace: boolean;
   merge?: RunRecord;
 }
 
@@ -74,18 +82,27 @@ export function RunProvider({ children }: { children: ReactNode }) {
   const [progress, setProgress] = useState<ProgressState>({ done: 0, total: 0, sampleIndex: 0, samples: 3 });
   const [startedAtMs, setStartedAtMs] = useState<number>();
   const [error, setError] = useState<string>();
+  const [modelTracePending, setModelTracePending] = useState(false);
 
   const workerRef = useRef<Worker>();
   const cpRef = useRef<RunCheckpoint>();
   const mergeRef = useRef<RunRecord>();
   const cfgRef = useRef<LaunchConfig>();
   const cancelTimerRef = useRef<number>();
+  /** 最新一条完成的 run：探针是异步后置的，合并时不能覆盖用户后来触发的补测结果。 */
+  const runRef = useRef<RunRecord>();
+  const probeAbortRef = useRef<AbortController>();
+
+  const setCurrentRun = useCallback((next: RunRecord | undefined) => {
+    runRef.current = next;
+    setRun(next);
+  }, []);
 
   useEffect(() => {
     let alive = true;
     void Promise.all([latestRun(), latestCheckpoint()]).then(([lastRun, lastCp]) => {
       if (!alive) return;
-      if (lastRun) setRun(lastRun);
+      if (lastRun) setCurrentRun(lastRun);
       if (lastCp) setCheckpoint(lastCp);
     });
     return () => {
@@ -96,6 +113,7 @@ export function RunProvider({ children }: { children: ReactNode }) {
   useEffect(
     () => () => {
       workerRef.current?.terminate();
+      probeAbortRef.current?.abort();
       if (cancelTimerRef.current) window.clearTimeout(cancelTimerRef.current);
     },
     [],
@@ -130,7 +148,9 @@ export function RunProvider({ children }: { children: ReactNode }) {
 
       cfgRef.current = cfg;
       mergeRef.current = cfg.merge;
-      setRun(undefined);
+      probeAbortRef.current?.abort();
+      setModelTracePending(false);
+      setCurrentRun(undefined);
       setError(undefined);
       setPhase('running');
       setStartedAtMs(Date.now());
@@ -187,7 +207,7 @@ export function RunProvider({ children }: { children: ReactNode }) {
             ].sort((a, b) => a.questionId.localeCompare(b.questionId))
           : [...msg.results].sort((a, b) => a.questionId.localeCompare(b.questionId));
         if (msg.cancelled && allResults.length === 0) {
-          setRun(undefined);
+          setCurrentRun(undefined);
           setPhase('idle');
           setError(
             msg.abortReason
@@ -210,6 +230,8 @@ export function RunProvider({ children }: { children: ReactNode }) {
               samplesPerQuestion: cfg.samples,
             })
           : msg.report;
+        // F14：超时归因只是报告附加块，不改 report 的任何分数。
+        const reportWithTimeout = { ...report, timeout: timeoutReportOf(allResults, (id) => TIMEOUT_OF.get(id)) };
 
         const record: RunRecord = {
           runId: cfg.runId,
@@ -224,7 +246,7 @@ export function RunProvider({ children }: { children: ReactNode }) {
           cancelled: msg.cancelled,
           expected: cfg.expected,
           results: allResults,
-          report,
+          report: reportWithTimeout,
           // F9/F10 跟着「合并后的全量结果」走：补测只跑了失败题，直接用 msg.signals
           // 会只覆盖那几道题，所以合并路径重算一次（口径仍在 core）。
           ...(merge ? signalsOf(allResults) : msg.signals),
@@ -232,8 +254,12 @@ export function RunProvider({ children }: { children: ReactNode }) {
           ...(msg.abortReason ? { abortReason: msg.abortReason } : {}),
           ...(msg.notices ? { notices: msg.notices } : {}),
           ...(merge ? { retriedAt: new Date().toISOString() } : {}),
+          ...(merge?.modelTrace ? { modelTrace: merge.modelTrace } : {}),
+          ...(merge?.modelTraceRequested ? { modelTraceRequested: true } : {}),
         };
-        setRun(record);
+        const shouldProbe = cfg.modelTrace && !msg.cancelled;
+        if (shouldProbe) record.modelTraceRequested = true;
+        setCurrentRun(record);
         setPhase('done');
         if (!msg.cancelled) {
           setCheckpoint(undefined);
@@ -244,6 +270,43 @@ export function RunProvider({ children }: { children: ReactNode }) {
         void saveRun(record);
         stopWorker();
         mergeRef.current = undefined;
+
+        // ModelTrace 探针串行跑在整卷结束之后：失败只影响卡片，不影响结果保存与断点。
+        if (shouldProbe) {
+          const controller = new AbortController();
+          setModelTracePending(true);
+          probeAbortRef.current?.abort();
+          probeAbortRef.current = controller;
+          void (async () => {
+            try {
+              const probeCfg: EndpointConfig = {
+                baseUrl: ep.baseUrl,
+                apiKey: ep.apiKey,
+                model: ep.model,
+                protocol: ep.protocol ?? 'openai',
+                ...(ep.headers ? { headers: ep.headers } : {}),
+              };
+              const adapter = resolveAdapter(probeCfg);
+              const bank = await loadModelTraceBank();
+              const result = await runModelTraceProbe({
+                cfg: probeCfg,
+                adapter,
+                bank,
+                signal: controller.signal,
+                send: sendPrepared,
+              });
+              const latest = runRef.current;
+              if (!latest || latest.runId !== record.runId) return;
+              const next: RunRecord = { ...latest, modelTrace: result };
+              setCurrentRun(next);
+              await saveRun(next);
+            } catch {
+              // 探针失败（参考库加载/网络）：卡片显示「未取得有效样本」，其余结果保持原样。
+            } finally {
+              if (probeAbortRef.current === controller) setModelTracePending(false);
+            }
+          })();
+        }
       };
       worker.onerror = (event) => {
         setError(`跑测引擎异常：${event.message || '未知错误'}`);
@@ -300,6 +363,7 @@ export function RunProvider({ children }: { children: ReactNode }) {
           done,
           startedAt: new Date().toISOString(),
           injectFlaky: merge?.injectFlaky ?? options.injectFlaky,
+          modelTrace: merge ? false : options.modelTrace === true,
           ...(merge ? { merge } : {}),
         },
         endpoint,
@@ -336,6 +400,7 @@ export function RunProvider({ children }: { children: ReactNode }) {
         done: cp.done,
         startedAt: cp.updatedAt,
         injectFlaky: cp.injectFlaky,
+        modelTrace: false,
       },
       endpoint,
     );
@@ -379,7 +444,7 @@ export function RunProvider({ children }: { children: ReactNode }) {
     [run, start],
   );
 
-  const clearRun = useCallback(() => setRun(undefined), []);
+  const clearRun = useCallback(() => setCurrentRun(undefined), [setCurrentRun]);
 
   const saveEndpointAndStore = useCallback((values: StoredEndpoint) => {
     const normalized = normalizeEndpoint(values);
@@ -396,6 +461,7 @@ export function RunProvider({ children }: { children: ReactNode }) {
       progress,
       startedAtMs,
       error,
+      modelTracePending,
       availableJudges: AVAILABLE,
       bankVersion: BANK_VERSION,
       judgeRuleVersion: JUDGE_RULE_VERSION,
@@ -415,6 +481,7 @@ export function RunProvider({ children }: { children: ReactNode }) {
       progress,
       startedAtMs,
       error,
+      modelTracePending,
       saveEndpointAndStore,
       start,
       resume,

@@ -6,7 +6,9 @@ import { groupLabel } from '../data/bank.js';
 import { probesOf } from './metrics.js';
 import { latencyMarkdownBlock } from './latencyMarkdown.js';
 import { latencyReportOf } from './latencyReport.js';
+import { modelTraceMarkdownBlock } from './model-trace.js';
 import { signalMarkdownBlock } from './signals.js';
+import { timeoutMarkdownBlock } from './timeout.js';
 import type { RunRecord } from './types.js';
 
 function pad(n: number): string {
@@ -103,6 +105,16 @@ export function exportMarkdown(run: RunRecord): string {
   lines.push('## 超时与响应时延');
   lines.push('');
   lines.push(...latencyMarkdownBlock(latencyReportOf(run.results)));
+  lines.push('');
+
+  lines.push('## 超时归因');
+  lines.push('');
+  lines.push(...timeoutMarkdownBlock(run.report.timeout));
+  lines.push('');
+
+  lines.push('## ModelTrace 指纹排名（附加结论，不进能力分）');
+  lines.push('');
+  lines.push(...modelTraceMarkdownBlock(run));
   lines.push('');
 
   lines.push('## 问题探针');

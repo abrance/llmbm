@@ -19,10 +19,12 @@ import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { EvidenceTable } from '../components/EvidenceTable.js';
 import { LatencyPanel } from '../components/LatencyPanel.js';
+import { ModelTraceCard } from '../components/ModelTraceCard.js';
 import { PageHeader } from '../components/Layout.js';
 import { ProbePanel } from '../components/ProbePanel.js';
 import { IntervalBar, ScoreDial, scoreColor } from '../components/Score.js';
 import { SignalsPanel } from '../components/Signals.js';
+import { TimeoutPanel } from '../components/TimeoutPanel.js';
 import { groupLabel } from '../data/bank.js';
 import { download, exportFilename, exportJson, exportMarkdown } from '../lib/export.js';
 import { consistencyOf, failedIds } from '../lib/metrics.js';
@@ -31,7 +33,7 @@ import { useRun } from '../state/runContext.js';
 export function ResultPage() {
   const { message } = App.useApp();
   const navigate = useNavigate();
-  const { run, phase, progress, retryFailed } = useRun();
+  const { run, phase, progress, retryFailed, modelTracePending } = useRun();
   const [submitOpen, setSubmitOpen] = useState(false);
   // 参与社区榜单默认不勾选：只有用户主动勾选才会公开提交。
   const [optIn, setOptIn] = useState(false);
@@ -367,7 +369,9 @@ export function ResultPage() {
 
       <ProbePanel results={record.results} onRetry={(ids) => retryFailed(ids)} busy={busy} />
       <LatencyPanel results={record.results} />
+      <TimeoutPanel run={record} />
       <SignalsPanel run={record} />
+      <ModelTraceCard run={record} pending={modelTracePending} />
       <EvidenceTable run={record} onRetry={(ids) => retryFailed(ids)} busy={busy} />
 
       <Modal
