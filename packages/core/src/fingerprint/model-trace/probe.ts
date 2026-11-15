@@ -16,6 +16,7 @@ import { parseNumbers, robustScoreNumbers, type ScoringBank } from './scoring.js
 
 const CAVEAT =
   'ModelTrace 探针：只反映「这条回答的数字指纹更接近库内哪个模型的参考样本」，是闭集内排序，不含库外模型；' +
+  '闭集概率表示在该参考库覆盖的模型里谁更像，库外模型一定会被归到最相似的候选，不能当「就是它」的结论。' +
   '不参与能力分与 judge 分数，也不能单独作为「被换成小模型」的定论。';
 
 /** 每条挑战要求写出的整数个数区间（与上游一致：292..332，三条互不相同）。 */
@@ -77,6 +78,11 @@ export interface ModelTraceRank {
   family: string;
   family_name: string;
   score: number;
+  /**
+   * 闭集概率：softmax(β × 均值分) 在该候选上的值，只在 `used>=3`（decision=ranked）时给出，
+   * 否则为 null。闭集外模型一定会被归到最相似的候选，不能当「就是它」。
+   */
+  probability: number | null;
 }
 
 export interface ModelTraceResult {
@@ -89,6 +95,12 @@ export interface ModelTraceResult {
   used: number;
   /** insufficient：没有有效样本；partial：有效样本不足三条（只给排名不给置信）；ranked：三条齐全。 */
   decision: 'insufficient' | 'partial' | 'ranked';
+  /** 闭集 top-1 概率；只有 ranked 且参考库带 calibration 时非 null。 */
+  probability: number | null;
+  /** `reference-calibrated` = 已按参考库 β 标定；`unavailable` = 样本不足或库缺 calibration。 */
+  probabilityStatus: 'reference-calibrated' | 'unavailable';
+  /** 概率的适用范围；非 null 时只能是 `reference-closed-set`（闭集内，不含库外模型）。 */
+  probabilityScope: 'reference-closed-set' | null;
   /** 按分数从高到低的前若干候选（默认前 5）。 */
   ranking: ModelTraceRank[];
   top?: ModelTraceRank;
@@ -99,7 +111,14 @@ export interface ModelTraceResult {
   referenceAccuracy: number | null;
 }
 
-const rankOf = (ranked: ModelTraceRank[]): ModelTraceRank[] => ranked;
+/** 闭集 softmax：β 来自参考库 calibration（按有效条数取 1/2/3），与上游 lm-detector 一致。 */
+function softmax(scores: readonly number[], beta: number): number[] {
+  const scaled = scores.map((score) => beta * score);
+  const max = Math.max(...scaled);
+  const exps = scaled.map((value) => Math.exp(value - max));
+  const sum = exps.reduce((a, b) => a + b, 0);
+  return exps.map((value) => value / sum);
+}
 
 /** 把若干条有效回答的排名分按模型取均值（每条内部先标准化，跨条平均后再排序）。 */
 function averageRanking(scores: number[][], bank: ScoringBank): ModelTraceRank[] {
@@ -115,6 +134,7 @@ function averageRanking(scores: number[][], bank: ScoringBank): ModelTraceRank[]
         family: meta?.family ?? 'other',
         family_name: meta?.family_name ?? '其他',
         score: means[modelIndex]!,
+        probability: null,
       };
     })
     .sort((a, b) => b.score - a.score);
@@ -166,13 +186,35 @@ function finishResult(
     referenceAccuracy: bank.calibration[String(used)]?.cv_accuracy ?? null,
   };
   if (used === 0) {
-    return { ...base, decision: 'insufficient', ranking: [] };
+    return {
+      ...base,
+      decision: 'insufficient',
+      probability: null,
+      probabilityStatus: 'unavailable',
+      probabilityScope: null,
+      ranking: [],
+    };
   }
   const scores = acceptedNumbers.map((numbers) => robustScoreNumbers(numbers, bank));
-  const ranked = rankOf(averageRanking(scores, bank));
-  const ranking = ranked.slice(0, topN);
+  const ranked = averageRanking(scores, bank);
   const decision = used >= 3 ? 'ranked' : 'partial';
-  return { ...base, decision, ranking, top: ranking[0] };
+  if (decision !== 'ranked') {
+    const ranking = ranked.slice(0, topN);
+    return { ...base, decision, probability: null, probabilityStatus: 'unavailable' as const, probabilityScope: null, ranking, top: ranking[0] };
+  }
+  const beta = bank.calibration[String(Math.min(used, 3))]?.beta;
+  const calibrated = typeof beta === 'number' && Number.isFinite(beta) ? softmax(ranked.map((rank) => rank.score), beta) : null;
+  const withProbability = ranked.map((rank, index) => ({ ...rank, probability: calibrated?.[index] ?? null }));
+  const ranking = withProbability.slice(0, topN);
+  return {
+    ...base,
+    decision,
+    probability: ranking[0]?.probability ?? null,
+    probabilityStatus: calibrated ? ('reference-calibrated' as const) : ('unavailable' as const),
+    probabilityScope: calibrated ? ('reference-closed-set' as const) : null,
+    ranking,
+    top: ranking[0],
+  };
 }
 
 export interface RunModelTraceProbeOptions {
