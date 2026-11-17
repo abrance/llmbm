@@ -2,7 +2,7 @@
 
 格式参照 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，版本遵循语义化。
 
-## [0.4.2] - 2026-11-17
+## [0.4.3] - 2026-11-17
 
 ### 修复（ModelTrace 探针失败不可见）
 - **探针失败不再静默**：`apps/web/src/state/RunProvider.tsx` 的 catch 原来只留一句注释，卡片统一写
