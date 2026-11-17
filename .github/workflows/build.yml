@@ -22,28 +22,31 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - uses: docker/setup-buildx-action@v3
-        with:
-          # buildx 的 buildkit 容器不继承宿主 /etc/docker/daemon.json 的 registry-mirrors，
-          # 不显式配镜像的话 docker.io 直连会 i/o timeout。
-          config-inline: |
-            [registry."docker.io"]
-              mirrors = ["https://mirror.ccs.tencentyun.com"]
+      # 刻意不用 docker/setup-buildx-action / login-action / build-push-action：
+      # 自托管 runner 每个作业都要从 codeload.github.com 现下这些 action，本机到
+      # codeload 只有几十 KB/s 且经常整段卡死（作业卡在 Set up job 十分钟后失败）。
+      # 直接调宿主 docker：走 daemon.json 的 registry-mirrors 解析基础镜像，也省掉
+      # buildkit 容器不继承镜像源的老问题。
+      - name: Build and push image
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          IMG="ghcr.io/${GITHUB_REPOSITORY}"
+          TAGS=(-t "${IMG}:latest" -t "${IMG}:${GITHUB_SHA}")
+          PUSH=false
+          if [[ "${GITHUB_REF_TYPE}" == "tag" ]]; then
+            TAGS+=(-t "${IMG}:${GITHUB_REF_NAME}")
+            PUSH=true
+          fi
+          if [[ "${{ inputs.push }}" == "true" ]]; then PUSH=true; fi
 
-      - uses: docker/login-action@v3
-        with:
-          registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
+          docker build -f deploy/Dockerfile "${TAGS[@]}" .
 
-      # tag 推送 = 发布（tag 名即镜像 tag，另打 latest）；手动触发默认不推送
-      - name: Build image
-        uses: docker/build-push-action@v6
-        with:
-          context: .
-          file: deploy/Dockerfile
-          push: ${{ inputs.push || github.ref_type == 'tag' }}
-          tags: |
-            ghcr.io/${{ github.repository }}:latest
-            ghcr.io/${{ github.repository }}:${{ github.sha }}
-            ${{ github.ref_type == 'tag' && format('ghcr.io/{0}:{1}', github.repository, github.ref_name) || '' }}
+          if [[ "${PUSH}" == "true" ]]; then
+            echo "${GITHUB_TOKEN}" | docker login ghcr.io -u "${GITHUB_ACTOR}" --password-stdin
+            docker push "${IMG}:${GITHUB_SHA}"
+            docker push "${IMG}:latest"
+            if [[ "${GITHUB_REF_TYPE}" == "tag" ]]; then docker push "${IMG}:${GITHUB_REF_NAME}"; fi
+            docker logout ghcr.io || true
+          fi
