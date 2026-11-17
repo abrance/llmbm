@@ -12,7 +12,7 @@ concurrency:
 
 jobs:
   verify:
-    runs-on: [self-hosted, linux, x64, llmbm]
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
 
@@ -20,6 +20,7 @@ jobs:
         with:
           # 与 engines 一致；node:sqlite 需要 24
           node-version: '24'
+          cache: npm
 
       - name: Install
         run: npm ci
