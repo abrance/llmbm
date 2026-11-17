@@ -1,7 +1,7 @@
-# apps/web · 产品面与题库（wof 维护）
+# apps/web · 产品面与题库
 
 > 本文件是 llmbm v0.1 前端与题库的交付说明。范围：`apps/web/**` + `packages/core/src/data/**`；
-> 判分实现归 mike/pit，本目录不复制任何判分逻辑（D1）。
+> 判分实现归 `@llmbm/core`，本目录不复制任何判分逻辑（D1）。
 
 ## 1. 页面信息架构
 

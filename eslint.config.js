@@ -2,7 +2,7 @@ import js from '@eslint/js';
 import tseslint from 'typescript-eslint';
 
 /**
- * 代码规范基线（骨架版，由 mike 细化，见 ARCHITECTURE.md §5）。
+ * 代码规范基线（骨架版，见 ARCHITECTURE.md §5）。
  * 只开「真会出错」的规则，不引入风格争论 —— 风格交给 prettier。
  */
 export default tseslint.config(

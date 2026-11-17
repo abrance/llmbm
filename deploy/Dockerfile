@@ -1,5 +1,5 @@
 # llmbm 单镜像（spec §7）：一个进程同时托管 api 与前端产物
-# 镜像名 ghcr.io/abrance/llmbm，上层只部署一个单元
+# 镜像名由 CI 的 GITHUB_REPOSITORY 决定；本地 compose 使用 llmbm:local
 # 构建上下文是仓库根（npm workspaces 需要根 lockfile）
 FROM node:24-alpine AS build
 WORKDIR /repo

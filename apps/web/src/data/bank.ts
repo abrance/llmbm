@@ -1,5 +1,5 @@
 /**
- * 题库入口（wof 维护）。JSON 是唯一事实源：packages/core/src/data/questions.json。
+ * 题库入口。JSON 是唯一事实源：packages/core/src/data/questions.json。
  * 新增题目只改 JSON；本文件只做类型收窄与分组元数据，不含判定逻辑（D2）。
  */
 import type { JudgeKind, Question } from '@llmbm/core';

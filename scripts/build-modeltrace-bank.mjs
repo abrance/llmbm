@@ -10,7 +10,7 @@
  * 全程不联网：只读本地已有的原始库。同一份输入两次运行，输出逐字节一致（纯抽取，不重算）。
  * 打分口径见 packages/core/src/fingerprint/model-trace/scoring.ts。
  *
- * 产物（都在 packages/core/src/data/model-trace-bank/，该目录归 pit 所有）：
+ * 产物（都在 packages/core/src/data/model-trace-bank/，该目录由 data 维护者维护）：
  *   model-trace-bank.json   精简库本体
  *   MANIFEST.json           上游 commit / 算法 / 探针参数 / bank sha256 / calibration 摘要
  *
