@@ -295,8 +295,18 @@ export function RunProvider({ children }: { children: ReactNode }) {
               const next: RunRecord = { ...latest, modelTrace: result };
               setCurrentRun(next);
               await saveRun(next);
-            } catch {
-              // 探针失败（参考库加载/网络）：卡片显示「未取得有效样本」，其余结果保持原样。
+            } catch (error) {
+              // 探针失败（参考库加载/网络/被中断）：原因落到记录上，卡片与导出能说明白，不再静默。
+              console.warn('[ModelTrace] 探针失败', error);
+              const latest = runRef.current;
+              if (latest && latest.runId === record.runId) {
+                const next: RunRecord = {
+                  ...latest,
+                  modelTraceError: error instanceof Error ? error.message : String(error),
+                };
+                setCurrentRun(next);
+                await saveRun(next);
+              }
             } finally {
               if (probeAbortRef.current === controller) setModelTracePending(false);
             }

@@ -2,6 +2,17 @@
 
 格式参照 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，版本遵循语义化。
 
+## [0.4.2] - 2026-11-17
+
+### 修复（ModelTrace 探针失败不可见）
+- **探针失败不再静默**：`apps/web/src/state/RunProvider.tsx` 的 catch 原来只留一句注释，卡片统一写
+  「未取得有效样本」，线上无法判断是参考库加载失败、网络问题还是页面被刷新中断。现在把错误信息
+  写进记录（`RunRecord.modelTraceError`）并 `console.warn`，卡片与 Markdown 导出直接显示原因。
+- **区分「探针没跑完」与「探针失败」**：「上次探针还在跑时刷新/关页」会在 IndexedDB 里留下
+  `modelTraceRequested=true` 但没有结果的记录，旧文案把它读成失败。现在无错误信息时写
+  「本次探针没有跑完（刷新或关闭页面会中断探针）」；旧记录仍是「本次未采集」。
+- **单测**：web 补两条文案用例（带原因 / 未完成不报假原因）。
+
 ## [0.4.0] - 2026-11-16
 
 ### 新增（v0.4 ModelTrace 指纹排名）

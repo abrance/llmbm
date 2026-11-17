@@ -56,9 +56,18 @@ test('旧记录（无 modelTrace）写「本次未采集」，不报错', () => 
   assert.match(text, /本次未采集/);
 });
 
-test('探针失败（requested 但没有结果）写「未取得有效样本」', () => {
+test('探针失败：把具体原因写进说明', () => {
+  const text = modelTraceMarkdownBlock({
+    modelTraceRequested: true,
+    modelTraceError: 'Failed to fetch',
+  }).join('\n');
+  assert.match(text, /未取得有效样本（探针失败：Failed to fetch）/);
+});
+
+test('探针没跑完（requested 但无结果无错误）不报谎的失败原因', () => {
   const text = modelTraceMarkdownBlock({ modelTraceRequested: true }).join('\n');
-  assert.match(text, /未取得有效样本/);
+  assert.match(text, /本次探针没有跑完/);
+  assert.equal(text.includes('未取得有效样本'), false);
 });
 
 test('ranked：排名、闭集概率、参考库准确率口径与 caveat 同屏', () => {

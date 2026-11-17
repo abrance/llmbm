@@ -93,6 +93,8 @@ export interface RunRecord {
   modelTrace?: ModelTraceResult;
   /** 本次是否请求了 ModelTrace 探针；用于区分「旧记录未采集」与「探针失败」。 */
   modelTraceRequested?: boolean;
+  /** 探针在拿到结果前抛错的具体原因（参考库加载/网络）；空表示没失败。 */
+  modelTraceError?: string;
 }
 
 /** F14 超时归因（只展示，不进 judge / 能力分）。 */
