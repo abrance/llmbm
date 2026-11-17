@@ -5,7 +5,7 @@
 import { Card, Space, Table, Tag, Typography } from 'antd';
 import type { ColumnsType } from 'antd/es/table';
 import type { ModelTraceRank } from '@llmbm/core';
-import { decisionText, probabilityText, referenceAccuracyText, topProbabilityText } from '../lib/model-trace.js';
+import { decisionText, modelTraceMissingText, probabilityText, referenceAccuracyText, topProbabilityText } from '../lib/model-trace.js';
 import type { RunRecord } from '../lib/types.js';
 
 const columns: ColumnsType<ModelTraceRank> = [
@@ -48,9 +48,7 @@ export function ModelTraceCard({ run, pending = false }: { run: RunRecord; pendi
         <Typography.Text type="secondary">
           {pending
             ? '探针采集 3 条长请求中…（附加结论，不影响能力分与结果保存）'
-            : run.modelTraceRequested
-              ? '未取得有效样本（探针失败不影响能力分与结果保存）。'
-              : '本次未采集（旧记录没有这一项）。'}
+            : modelTraceMissingText(run)}
         </Typography.Text>
       ) : (
         <Space direction="vertical" size={14} style={{ width: '100%' }}>

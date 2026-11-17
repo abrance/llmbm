@@ -30,16 +30,22 @@ export function topProbabilityText(result: ModelTraceResult): string {
   return '有效样本不足三条，本次不提供闭集概率';
 }
 
-/** 导出用段落；旧记录写「本次未采集」，开关打开但探针失败写「未取得有效样本」。 */
-export function modelTraceMarkdownBlock(run: Pick<RunRecord, 'modelTrace' | 'modelTraceRequested'>): string[] {
+/** 没有 modelTrace 结果时的说明：优先给失败原因，其次区分「跑了但没完成」与「旧记录未采集」。 */
+export function modelTraceMissingText(
+  run: Pick<RunRecord, 'modelTraceRequested' | 'modelTraceError'>,
+): string {
+  if (run.modelTraceError) return `未取得有效样本（探针失败：${run.modelTraceError}）`;
+  if (run.modelTraceRequested)
+    return '本次探针没有跑完（刷新或关闭页面会中断探针；不影响能力分与结果保存）。';
+  return '本次未采集（旧记录没有这一项）。';
+}
+
+/** 导出用段落；旧记录写「本次未采集」，开关打开但没拿到结果时写失败原因或未完成。 */
+export function modelTraceMarkdownBlock(run: Pick<RunRecord, 'modelTrace' | 'modelTraceRequested' | 'modelTraceError'>): string[] {
   const lines: string[] = [];
   const result = run.modelTrace;
   if (!result) {
-    lines.push(
-      run.modelTraceRequested
-        ? '未取得有效样本（探针失败不影响能力分与结果保存）。'
-        : '本次未采集（旧记录没有这一项）。',
-    );
+    lines.push(modelTraceMissingText(run));
     return lines;
   }
   lines.push(`- 结论：${decisionText(result.decision)}（有效样本 ${result.used}/${result.queries} 条）`);
