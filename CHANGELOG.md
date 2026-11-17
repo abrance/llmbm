@@ -71,7 +71,7 @@
 - **内置 Mock**：超时组改用 SSE 分片返回（首字延迟按题配置），可本地演示 TTFT；故障注入走请求头
   `x-llmbm-fault: slow-first | hang | stall | drip | long-output`（`x-llmbm-inject: flaky` 为跑测页开关），
   请求处理抽到 `apps/web/mock/handler.ts`，dev/preview 中间件与单测共用同一份实现。
-- 不改全局默认 timeout、不改 transport 重试与终止阈值（mike 的 core 契约）。
+- 不改全局默认 timeout、不改 transport 重试与终止阈值（core 契约）。
 
 ### 新增（v0.3.5）
 - **F9 家族指纹 / F10 退化检测接入一次跑测（弱信号）**：core 新增 `runSignalsOf({ samplesByQuestion, baseline? })`，

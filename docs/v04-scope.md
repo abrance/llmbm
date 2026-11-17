@@ -1,29 +1,29 @@
-# llmbm v0.4 范围与接口契约（mike 定稿，2026-11-16）
+# llmbm v0.4 范围与接口契约（2026-11-16）
 
 v0.3.5 已把「能力测评 + F9/F10 弱信号」做稳。v0.4 只做三件事，**一个版本发 0.4.0**，不拆多个版本：
-超时类用例与归因（wof）、ModelTrace 主动探针（mike core + wof 前端）、指纹排名参考库与闭集排名
-（mike core、pit 数据流水线）。**探针与排名都是附加结论，不进能力分 / judge 分数。**
+超时类用例与归因（web）、ModelTrace 主动探针（core + web）、指纹排名参考库与闭集排名
+（core、data）。**探针与排名都是附加结论，不进能力分 / judge 分数。**
 
-## 1. 目录所有权（ARCHITECTURE.md §1 的增补）
+## 1. 目录与模块（ARCHITECTURE.md §1 的增补）
 
-| 路径 | 所有者 | 内容 |
+| 路径 | 模块 | 内容 |
 |---|---|---|
-| `packages/core/src/fingerprint/model-trace/**` | mike | 探针挑战生成、解析、排名打分、参考库加载、闭集概率（纯函数；含 replay 回归与 fixture JSON） |
-| `scripts/build-modeltrace-bank.mjs`、`scripts/modeltrace/**`、`packages/core/src/data/model-trace-bank/**` | pit | 上游 raw bank → 精简库抽取脚本与产物（库本体 + MANIFEST，v0.4 目录归属的明确例外）；`--check` 从源重建、`--verify-hash` 只校验仓内产物 |
-| `apps/web/src/lib/latency.ts`、`latencyReport.ts`、`components/LatencyPanel.tsx` | wof | 超时/时延归因（纯展示统计，不进判分） |
-| `apps/web/src/components/ModelTraceCard.tsx`、`apps/web/src/lib/modelTrace.ts` | wof | 探针结果卡片、导出段落、跑测页开关 |
-| `packages/core/src/judge/rules/**` | pit | 本版**不新增** judge；超时不得变成扣分项 |
+| `packages/core/src/fingerprint/model-trace/**` | core | 探针挑战生成、解析、排名打分、参考库加载、闭集概率（纯函数；含 replay 回归与 fixture JSON） |
+| `scripts/build-modeltrace-bank.mjs`、`scripts/modeltrace/**`、`packages/core/src/data/model-trace-bank/**` | data / scripts | 上游 raw bank → 精简库抽取脚本与产物（库本体 + MANIFEST）；`--check` 从源重建、`--verify-hash` 只校验仓内产物 |
+| `apps/web/src/lib/latency.ts`、`latencyReport.ts`、`components/LatencyPanel.tsx` | web | 超时/时延归因（纯展示统计，不进判分） |
+| `apps/web/src/components/ModelTraceCard.tsx`、`apps/web/src/lib/modelTrace.ts` | web | 探针结果卡片、导出段落、跑测页开关 |
+| `packages/core/src/judge/rules/**` | rules | 本版**不新增** judge；超时不得变成扣分项 |
 
-原 v0.3 的所有权继续有效。`packages/core/src/adapters/**` 仍归 pit，但**只放协议映射**；
-探针/排名是「指纹」能力，放在 `fingerprint/**`（mike），复用 adapter 但不修改 adapter。
+原 v0.3 的模块边界继续有效。`packages/core/src/adapters/**` 仍属 core，但**只放协议映射**；
+探针/排名是「指纹」能力，放在 `fingerprint/**`（core），复用 adapter 但不修改 adapter。
 
 ## 2. 优先级与合入顺序
 
-| 顺序 | 事项 | 负责 | 分支 | 依赖 |
-|---|---|---|---|---|
-| 1 | 参考库 + 排名打分 + 探针请求通路（含目录归位到 `fingerprint/model-trace/**`） | pit（PR #23 返工） | `feat/model-trace-bank-and-probe` | 无 |
-| 2 | core 收尾：闭集概率 + replay 回归（真实样本 top-1） | mike | `feat/v04-core-modeltrace` | 1 合入 |
-| 3 | 超时类题库分组 + 结果页超时卡片 + ModelTrace 前端卡片 | wof | `feat/web-timeout-modeltrace` | 1、2 合入 |
+| 顺序 | 事项 | 依赖 |
+|---|---|---|
+| 1 | 参考库 + 排名打分 + 探针请求通路（含目录归位到 `fingerprint/model-trace/**`） | 无 |
+| 2 | core 收尾：闭集概率 + replay 回归（真实样本 top-1） | 1 合入 |
+| 3 | 超时类题库分组 + 结果页超时卡片 + ModelTrace 前端卡片 | 1、2 合入 |
 
 **顺序理由**：参考库与打分是「数据 + 纯函数」，没有它探针结果无法解释；core 收尾补上验收要求的
 真实数据回归；前端最后接入，避免接口两头改。三件事同版发 **0.4.0**，不单独发 patch。
@@ -32,7 +32,7 @@ v0.3.5 已把「能力测评 + F9/F10 弱信号」做稳。v0.4 只做三件事�
 
 ### 3.1 超时类用例与归因（F14）
 
-- 超时类用例：题库新增 `timeout` 分组（wof 维护 `packages/core/src/data/questions.json`），题目自带
+- 超时类用例：题库新增 `timeout` 分组（题库维护者维护 `packages/core/src/data/questions.json`），题目自带
   `timeoutMs` 预算与「首字慢 / 挂起 / 流式中段卡死 / 滴流 / 长输出超预算 / 短问答超时」标签；
   跑测页可单独勾选该组，只跑这一类。
 - 归因分两层，**判定与分位数只有 core 一份**：`packages/core/src/timeout.ts` 的
@@ -58,7 +58,7 @@ v0.3.5 已把「能力测评 + F9/F10 弱信号」做稳。v0.4 只做三件事�
 
 ### 3.3 排名参考库
 
-- 只提交精简库（约 1.05MB，gzip 472KB），落在 `packages/core/src/data/model-trace-bank/`（pit 所有），
+- 只提交精简库（约 1.05MB，gzip 472KB），落在 `packages/core/src/data/model-trace-bank/`（由 data 维护者维护），
   头部 `provenance` 记
   `source_repo / source_commit / source_sha256 / license / license_copyright / built_at`；
   同目录 `MANIFEST.json` 记产物 sha256、上游 commit、算法名、探针参数与 calibration 1/2/3 的 beta+cv。
@@ -75,7 +75,7 @@ v0.3.5 已把「能力测评 + F9/F10 弱信号」做稳。v0.4 只做三件事�
 
 1. `npm run verify` 全绿（typecheck + lint + core/api/web 全部单测）。
 2. `npm run build -w @llmbm/web` 通过。
-3. **排名 replay 回归**：用参考库自带真实样本回放，top-1 命中率 ≥ 95%（本机实测 70/70 = 100%，见 PR 原始输出）；
+3. **排名 replay 回归**：用参考库自带真实样本回放，top-1 命中率 ≥ 95%（验收记录 70/70 = 100%）；
    低于阈值即拒合。
 4. **探针不污染能力分**：单测断言 `aggregate` 不读 modelTrace；结果页独立卡片 + caveat；开关关闭时零额外请求。
 5. 超时类只出现在 `response.error` 的采样上：正常响应不产生超时类条目；超时不改任何分数。

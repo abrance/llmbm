@@ -1,7 +1,7 @@
 /**
  * llmbm core 公共类型契约。
  * 变更规则：本文件是 judge / adapters / scoring / sampling 与 apps 之间唯一的类型边界，
- * 改动必须同步 ARCHITECTURE.md 并在 MR 描述里写明影响面。
+ * 改动必须同步 ARCHITECTURE.md 并在 PR 描述里写明影响面。
  */
 
 /* ------------------------------------------------------------------ 题目与题库 */

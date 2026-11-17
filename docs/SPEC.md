@@ -1,8 +1,6 @@
 # llmbm 产品规格与架构基线 v0.1
 
-日期：2026-11-12 · 作者：sor（架构） · 对标：https://www.apitest.work/
-
-仓库：`/opt/mystorage/github/llmbm`（git@github.com:abrance/llmbm.git，当前空仓）
+日期：2026-11-12 · 对标：https://www.apitest.work/
 
 ## 0. 一句话目标
 
@@ -122,16 +120,16 @@
 
 **明确不做（v0.1）**：账号体系、付费、多租户、i18n、移动端适配、自建模型网关、向量检索。
 
-## 5. 分工与文件所有权（避免并发写冲突）
+## 5. 模块边界（避免实现分叉）
 
-| 人 | 范围 | 边界 |
+| 模块 | 范围 | 边界 |
 |---|---|---|
-| pit | 仓库骨架、CI、Dockerfile/compose、scripts、README | 骨架交付后只改 `.github/` `deploy/` `scripts/`；v0.4 例外：`packages/core/src/data/model-trace-bank/**`（参考库 + MANIFEST）与 `scripts/build-modeltrace-bank.mjs`、第三方许可归 pit |
-| wof | `apps/web/**` 全部 + `packages/core/src/data/**`（题库 JSON、题目设计） | 不改 core 的判定实现 |
-| mike | `packages/core/src/{judge,adapters,scoring,sampling,timeout,fingerprint}/**`、代码规范、MR 评审与合入 | 不改 `apps/web` |
-| sor | 架构与选型裁决、功能基线验收 | 不改业务代码 |
+| core | `packages/core/src/{judge,adapters,scoring,sampling,timeout,fingerprint}/**`、代码规范 | 不改 `apps/web` |
+| web | `apps/web/**` 全部 + `packages/core/src/data/**`（题库 JSON、题目设计） | 不改 core 的判定实现 |
+| api / infra | `apps/api/**`、`.github/**`、`deploy/**`、`scripts/**`、`README.md`、参考库与 MANIFEST | 只改基础设施与数据流水线，不写判分逻辑 |
+| 架构 | 架构与选型裁决、功能基线验收 | 不改业务代码 |
 
-节奏：pit 先把骨架做到 `npm ci && npm test` 能过；wof / mike 在各自目录内并行；合并顺序与冲突由 mike 定。
+节奏：先让骨架通过 `npm ci && npm test`；各模块并行；合并顺序与冲突由维护者定。
 
 ## 6. v0.1 完成定义
 

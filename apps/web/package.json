@@ -2,6 +2,7 @@
   "name": "@llmbm/web",
   "version": "0.1.0",
   "private": true,
+  "license": "MIT",
   "type": "module",
   "description": "llmbm 前端：接入配置 / 跑测 / 结果 / 社区（React 18 + Vite + antd）",
   "scripts": {

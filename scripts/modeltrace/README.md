@@ -1,7 +1,7 @@
 # ModelTrace 参考库构建（构建脚本说明）
 
 `scripts/build-modeltrace-bank.mjs` 从 lm-detector 的原始 `unified_bank.json` 抽取「指纹排名打分必需字段」，
-生成入库用的两个文件（都在 `packages/core/src/data/model-trace-bank/`，该目录归 pit 所有）：
+生成入库用的两个文件（都在 `packages/core/src/data/model-trace-bank/`，该目录由 data 维护者维护）：
 
 - `model-trace-bank.json` —— 精简参考库本体（约 1.05MB）
 - `MANIFEST.json` —— 产物 sha256、上游 commit、算法名、探针参数、calibration 1/2/3 的 beta+cv

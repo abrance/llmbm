@@ -2,6 +2,7 @@
   "name": "@llmbm/core",
   "version": "0.1.0",
   "private": true,
+  "license": "MIT",
   "type": "module",
   "description": "LLM 中转站可信度检测核心：judge registry / 抽样 / 打分聚合 / 协议适配。零运行时依赖，前后端共用。",
   "main": "./dist/index.js",

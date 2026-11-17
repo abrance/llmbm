@@ -2,6 +2,7 @@
   "name": "@llmbm/api",
   "version": "0.1.0",
   "private": true,
+  "license": "MIT",
   "type": "module",
   "description": "llmbm 后端：模型列表 / SSE 代理透传 / 社区结果（Fastify；存储可选 Postgres 或 SQLite）",
   "main": "./dist/server.js",
