@@ -1,6 +1,6 @@
 {
-  "version": "qb-2026-11-16.1",
-  "description": "llmbm v0.4 题库：8 个分组、74 题，覆盖 spec §2.1 的全部 judge（每类至少 2 题）。group=context 专测多轮/长输入/参数语义/工具回填/多模态/误杀拒答；group=timeout 专测中转站超时与响应时延（首字慢、挂起、流式卡死、滴流、长输出超预算、短问答超时、并发人工复核）。每题 description 是给人看的「这题测什么」，不参与判分；mock 字段只供 apps/web 内置演示端点使用。",
+  "version": "qb-2026-11-19.1",
+  "description": "llmbm v0.4 题库：8 个分组、75 题，覆盖 spec §2.1 的全部 judge（每类至少 2 题）。group=context 专测多轮/长输入/参数语义/工具回填/多模态/误杀拒答；group=timeout 专测中转站超时与响应时延（首字慢、挂起、流式卡死、滴流、长输出超预算、短问答超时、并发人工复核）。每题 description 是给人看的「这题测什么」，不参与判分；mock 字段只供 apps/web 内置演示端点使用。",
   "questions": [
     {
       "id": "basic-exact-001",
@@ -560,6 +560,20 @@
       "tags": ["多模态", "SVG"],
       "mock": {
         "text": "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 200 200\"><ellipse cx=\"100\" cy=\"120\" rx=\"60\" ry=\"40\" fill=\"#f4f4f4\"/><circle cx=\"140\" cy=\"70\" r=\"22\" fill=\"#ffffff\"/><path d=\"M155 70 L190 80 L155 88 Z\" fill=\"#f5a623\"/><path d=\"M80 120 Q60 90 90 70\" stroke=\"#333333\" fill=\"none\" stroke-width=\"3\"/></svg>"
+      }
+    },
+    {
+      "id": "adv2-pelican-bike-001",
+      "description": "经典「鹈鹕骑自行车」SVG 基准：主体 + 载具的多对象组合，比单只鹈鹕更容易暴露退化与只回文字描述的假执行。",
+      "group": "advanced",
+      "weight": 2,
+      "prompt": "用 SVG 画一只正在骑自行车的鹈鹕：必须包含 viewBox、至少 8 个图形元素（含两个车轮与车架），不要使用脚本。",
+      "judge": "pelican-svg",
+      "expect": { "minShapes": 8 },
+      "timeoutMs": 60000,
+      "tags": ["多模态", "SVG"],
+      "mock": {
+        "text": "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 240 200\"><circle cx=\"60\" cy=\"150\" r=\"30\" fill=\"none\" stroke=\"#333333\" stroke-width=\"5\"/><circle cx=\"180\" cy=\"150\" r=\"30\" fill=\"none\" stroke=\"#333333\" stroke-width=\"5\"/><path d=\"M60 150 L110 110 L180 150 M110 110 L140 150\" stroke=\"#e2574c\" stroke-width=\"6\" fill=\"none\"/><ellipse cx=\"130\" cy=\"80\" rx=\"34\" ry=\"26\" fill=\"#f6f6f6\"/><circle cx=\"168\" cy=\"58\" r=\"18\" fill=\"#ffffff\"/><path d=\"M120 66 Q110 40 140 36\" stroke=\"#333333\" stroke-width=\"8\" fill=\"none\"/><polygon points=\"184,52 220,62 184,70\" fill=\"#f5a623\"/><path d=\"M112 104 L104 140 L118 146\" stroke=\"#333333\" stroke-width=\"5\" fill=\"none\"/><path d=\"M150 96 L168 118\" stroke=\"#333333\" stroke-width=\"5\" fill=\"none\"/></svg>"
       }
     },
     {

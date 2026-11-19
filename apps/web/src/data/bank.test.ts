@@ -5,7 +5,7 @@ import { BANK_VERSION, DEFAULT_GROUPS, GROUP_ORDER, QUESTION_BANK } from './bank
 
 test('题库文件可加载，版本与题目数符合本次交付', () => {
   assert.match(BANK_VERSION, /^qb-/);
-  assert.equal(QUESTION_BANK.length, 74);
+  assert.equal(QUESTION_BANK.length, 75);
 });
 
 test('spec §1 F3 分组都有题', () => {
